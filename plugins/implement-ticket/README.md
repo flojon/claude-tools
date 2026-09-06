@@ -21,7 +21,7 @@ Install that plugin first, or provide equivalent skills under those names — `i
 ## Install
 
 ```
-/plugin marketplace add jonasfloden/claude-tools
+/plugin marketplace add flojon/claude-tools
 /plugin install implement-ticket@jonasfloden-claude-tools
 ```
 

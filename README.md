@@ -5,7 +5,7 @@ A growing collection of Claude Code plugins — skills, and eventually agents/co
 ## Install
 
 ```
-/plugin marketplace add jonasfloden/claude-tools
+/plugin marketplace add flojon/claude-tools
 /plugin install <plugin-name>@jonasfloden-claude-tools
 ```
 
