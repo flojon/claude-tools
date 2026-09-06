@@ -1,0 +1,13 @@
+{
+  "name": "jonasfloden-claude-tools",
+  "owner": {
+    "name": "Jonas Flodén"
+  },
+  "plugins": [
+    {
+      "name": "implement-ticket",
+      "source": "./plugins/implement-ticket",
+      "description": "Take a ticket from its tracker to a draft PR, with fresh-context reviewers as the quality gate."
+    }
+  ]
+}
