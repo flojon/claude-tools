@@ -1,8 +1,9 @@
 {
-  "name": "jonasfloden-claude-tools",
+  "name": "flojon-claude-tools",
   "owner": {
     "name": "Jonas Flodén"
   },
+  "allowCrossMarketplaceDependenciesOn": ["superpowers-dev"],
   "plugins": [
     {
       "name": "implement-ticket",

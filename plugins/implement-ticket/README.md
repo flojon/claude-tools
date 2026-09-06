@@ -9,20 +9,20 @@ A Claude Code skill that takes a ticket from its tracker to a draft pull request
 
 ## Requirements
 
-This plugin depends on sub-skills from **[superpowers](https://github.com/obra/superpowers)** (or any plugin providing skills of the same name):
+This plugin depends on sub-skills from **[superpowers](https://github.com/obra/superpowers)**:
 
 - `superpowers:requesting-code-review`
 - `superpowers:receiving-code-review`
 - `superpowers:test-driven-development`
 - `superpowers:verification-before-completion`
 
-Install that plugin first, or provide equivalent skills under those names — `implement-ticket` invokes them by name and will not resolve without them.
+`plugin.json` declares `superpowers` as a manifest dependency (resolved from its `superpowers-dev` marketplace), so installing `implement-ticket` installs it automatically. If you provide equivalent skills under those names some other way, that satisfies the requirement too — `implement-ticket` invokes them by name and will not resolve without them.
 
 ## Install
 
 ```
 /plugin marketplace add flojon/claude-tools
-/plugin install implement-ticket@jonasfloden-claude-tools
+/plugin install implement-ticket@flojon-claude-tools
 ```
 
 Or copy `skills/implement-ticket/` directly into your `~/.claude/skills/` directory.
