@@ -3,7 +3,7 @@
   "owner": {
     "name": "Jonas Flodén"
   },
-  "allowCrossMarketplaceDependenciesOn": ["superpowers-dev"],
+  "allowCrossMarketplaceDependenciesOn": ["claude-plugins-official"],
   "plugins": [
     {
       "name": "implement-ticket",
