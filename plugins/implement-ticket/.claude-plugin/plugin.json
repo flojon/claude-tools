@@ -10,6 +10,6 @@
   "homepage": "https://github.com/flojon/claude-tools/tree/main/plugins/implement-ticket",
   "keywords": ["github", "pull-request", "code-review", "ticket", "issue"],
   "dependencies": [
-    { "name": "superpowers", "marketplace": "superpowers-dev" }
+    { "name": "superpowers", "marketplace": "claude-plugins-official" }
   ]
 }

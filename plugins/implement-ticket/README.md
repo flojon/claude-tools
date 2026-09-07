@@ -16,7 +16,7 @@ This plugin depends on sub-skills from **[superpowers](https://github.com/obra/s
 - `superpowers:test-driven-development`
 - `superpowers:verification-before-completion`
 
-`plugin.json` declares `superpowers` as a manifest dependency (resolved from its `superpowers-dev` marketplace), so installing `implement-ticket` installs it automatically. If you provide equivalent skills under those names some other way, that satisfies the requirement too — `implement-ticket` invokes them by name and will not resolve without them.
+`plugin.json` declares `superpowers` as a manifest dependency, resolved from the `claude-plugins-official` marketplace — the marketplace `superpowers` is actually published to and installed from for most users. Installing `implement-ticket` installs it there automatically. If you provide the four sub-skills above under those names some other way (a different `superpowers` source, or an equivalent skill set), that satisfies the requirement too — `implement-ticket` invokes them by name and will not resolve without them.
 
 ## Install
 
