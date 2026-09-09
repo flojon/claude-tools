@@ -2,6 +2,7 @@
 
 A Claude Code skill that takes a ticket from its tracker to a draft pull request, using fresh-context subagent reviewers as the quality gate instead of stopping once you feel satisfied.
 
+- an orchestrator that never touches the ticket, the build, or the diff directly — it dispatches one fresh subagent per phase (and one per review round) and acts only on a compact report, so its own context stays flat no matter how long the run
 - pulls ticket/issue text and comments from GitHub (other trackers via whatever skill/MCP server you have installed for them), and detects prior or parallel work on the same ticket before scoping anything
 - an escalation gate that only spins up a spec-then-plan stage for multi-deliverable or ambiguous work, and implements directly otherwise
 - a capped, axis-based review loop (security, correctness, conformance, simplification, "use the output") run by fresh dispatched reviewers, narrowing each round instead of re-running everything
