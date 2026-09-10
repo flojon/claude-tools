@@ -19,6 +19,8 @@ You start as the **orchestrator**. From here on, you never read a ticket, run a 
 
 **Dispatch prompts are short.** Name the ticket, the repo, which phase to run ("Run Phase 2 of implement-ticket"), and whatever state already exists — `worktree_path`, `notes_path`, the PR number, a human's answer to an earlier question. The subagent loads this same skill itself and executes that phase's instructions; you are not restating them.
 
+**Land runs on a cheaper model.** Dispatch Phase 6 with `model: "haiku"`. Rebasing, re-running the verify legs, and the ready/draft checklist are rule-following against a fixed list, not open-ended judgment, and a mistake there is cheap to catch — CI stays red, or a human notices a PR still in draft. Every other phase dispatches at the default model.
+
 **State that must outlive one subagent lives on disk, never in your context.** The acceptance checklist and verify legs go in the notes file (Phase 2); round-by-round review history goes in the rolling PR comment (Phase 5) — exactly as this skill already required before reviewer subagents existed. Extend the same discipline to the boundary between you and whichever subagent runs next: it re-derives what it needs from the notes file, the PR and the diff, not from being told your history.
 
 **A subagent cannot talk to the human — you can.** Wherever an instruction below says "ask" or "stop and ask," a dispatched subagent instead returns the question (`open_questions`, `blocked`, or a named flag) and stops short of deciding it. You read that field, ask the human, and fold the answer into the next dispatch. Phase 3 (the size gate) is the one phase that runs in your own context — every other phase is a subagent.
@@ -384,7 +386,7 @@ Read the code and run it against inputs it has never seen before concluding anyt
 
 ## Phase 6 — Land
 
-**Dispatched as:** one subagent, given `worktree_path`, `notes_path`, `pr_number`, and the base branch.
+**Dispatched as:** one subagent, `model: "haiku"` (see Orchestration model), given `worktree_path`, `notes_path`, `pr_number`, and the base branch.
 
 1. `git fetch origin && git rebase "$BASE"`, then `git push --force-with-lease`. Main moves during long runs — it moved five commits under this very step once. After a rebase, re-check anything citing line numbers, and see the force-push rule at the end of this phase before pushing.
 2. **Re-run every verify leg after the rebase**, including the ones deferred as expensive, and paste the real output into the notes file. Per superpowers:verification-before-completion: no green claim without the output that proves it. Name any leg that could not run locally and why.
