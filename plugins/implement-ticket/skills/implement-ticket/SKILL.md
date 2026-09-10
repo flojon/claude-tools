@@ -25,6 +25,17 @@ You start as the **orchestrator**. From here on, you never read a ticket, run a 
 
 **You hold, across the whole run:** the ticket id, `worktree_path`, `notes_path`, the PR number once one exists, and the round counter against the cap. Nothing else needs to survive from one dispatch to the next.
 
+**Track the run with a task list.** Before dispatching Phase 1, create one (`TaskCreate`) with these six entries, named exactly as below — no `Phase N —` prefix or number, since a dispatch instruction already names the phase and the list's own order carries the sequence:
+
+- Intake
+- Recon
+- Size gate
+- Long path only: spec, then plan
+- Implementation, then the review loop
+- Land
+
+Mark each in-progress right before its dispatch and completed when that subagent's report comes back — this is the record of where the run stands once the work itself is happening inside subagents you cannot narrate over. Drop the spec/plan entry once Phase 3 takes the short path; there is nothing to track for it.
+
 ## Phase 1 — Intake
 
 **Dispatched as:** one subagent, given the ticket id/URL and the repo.
