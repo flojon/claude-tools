@@ -23,7 +23,7 @@ This plugin depends on sub-skills from **[superpowers](https://github.com/obra/s
 
 ```
 /plugin marketplace add flojon/claude-tools
-/plugin install implement-ticket@flojon-claude-tools
+/plugin install ks@flojon-claude-tools
 ```
 
 Or copy `skills/implement-ticket/` directly into your `~/.claude/skills/` directory.
