@@ -443,6 +443,8 @@ Never delete a branch holding work that exists nowhere else. Removing a worktree
 
 **You:** if `ci_status == red` and rounds remain under the cap, dispatch one more round subagent targeted at the failure, then re-dispatch Phase 6. If the cap is exhausted and still red, stop and report red. Otherwise, this report is the final state — compose the human-facing summary from it and everything the earlier reports carried, never by re-reading the diff or any subagent's transcript directly.
 
+**If a `/loop` wakeup is driving this run, stop it here.** A landed ticket has nothing left to poll for, and a wakeup left scheduled fires anyway — it resumes into a stale run that can only repeat the finished report a second time. Call `ScheduleWakeup({stop: true})` as the last thing this run does, right after composing the summary above. This applies whenever this report is the final state, not only the success path: a red-CI stop with the cap exhausted, or any other point where the orchestrator is done and reporting to the human, is equally a reason to stop the loop rather than leave a wakeup pending.
+
 ## Common mistakes
 
 | Mistake | Why it bites |
@@ -480,6 +482,7 @@ Never delete a branch holding work that exists nowhere else. Removing a worktree
 | Stopping because a reviewer said "ready to merge" | That is one opinion, not the exit condition. Exit on a round that earns nothing. |
 | Looping until reviewers fall silent | Subjective nits never run out. The cap keeps cost bounded. |
 | Implementing a finding that hasn't been verified | Reviewers are confidently wrong at a steady rate. Check first. |
+| Leaving a `/loop` wakeup scheduled after reporting the final state | It fires later as a stale resume that just repeats the finished report. Call `ScheduleWakeup({stop: true})` once Phase 6 (or any other final report) is composed. |
 
 ## Red flags
 

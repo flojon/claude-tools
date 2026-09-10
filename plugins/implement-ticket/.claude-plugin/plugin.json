@@ -2,7 +2,7 @@
   "name": "ks",
   "displayName": "implement-ticket",
   "description": "Take a ticket from its tracker to a draft PR, with fresh-context reviewers as the quality gate.",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "author": {
     "name": "Jonas Flodén"
   },
