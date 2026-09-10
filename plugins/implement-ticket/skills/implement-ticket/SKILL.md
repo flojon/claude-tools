@@ -25,16 +25,18 @@ You start as the **orchestrator**. From here on, you never read a ticket, run a 
 
 **You hold, across the whole run:** the ticket id, `worktree_path`, `notes_path`, the PR number once one exists, and the round counter against the cap. Nothing else needs to survive from one dispatch to the next.
 
-**Track the run with a task list.** Before dispatching Phase 1, create one (`TaskCreate`) with these six entries, named exactly as below — no `Phase N —` prefix or number, since a dispatch instruction already names the phase and the list's own order carries the sequence:
+**Track the run with a task list.** Before dispatching Phase 1, create one (`TaskCreate`) with these entries, named exactly as below — short mnemonics, not the phase headings verbatim, and no `Phase N —` prefix or number, since a dispatch instruction already names the phase and the list's own order carries the sequence:
 
 - Intake
 - Recon
 - Size gate
-- Long path only: spec, then plan
-- Implementation, then the review loop
+- Spec & plan
+- Implementation
 - Land
 
-Mark each in-progress right before its dispatch and completed when that subagent's report comes back — this is the record of where the run stands once the work itself is happening inside subagents you cannot narrate over. Drop the spec/plan entry once Phase 3 takes the short path; there is nothing to track for it.
+Mark each in-progress right before its dispatch and completed when that subagent's report comes back — this is the record of where the run stands once the work itself is happening inside subagents you cannot narrate over. Drop "Spec & plan" once Phase 3 takes the short path; there is nothing to track for it.
+
+**The review loop (5b) gets one task per round, added as each round is dispatched rather than upfront** — the round count is not known until the loop actually exits. Insert `Review round N` before `Land`, mark it in-progress on dispatch and completed once that round's triage and fixes land. Stop adding rounds once the loop exits on its own terms (a round earns nothing, or the cap is hit); the list then shows exactly how many rounds this run took.
 
 ## Phase 1 — Intake
 
@@ -441,6 +443,8 @@ Never delete a branch holding work that exists nowhere else. Removing a worktree
 
 **You:** if `ci_status == red` and rounds remain under the cap, dispatch one more round subagent targeted at the failure, then re-dispatch Phase 6. If the cap is exhausted and still red, stop and report red. Otherwise, this report is the final state — compose the human-facing summary from it and everything the earlier reports carried, never by re-reading the diff or any subagent's transcript directly.
 
+**If a `/loop` wakeup is driving this run, stop it here.** A landed ticket has nothing left to poll for, and a wakeup left scheduled fires anyway — it resumes into a stale run that can only repeat the finished report a second time. Call `ScheduleWakeup({stop: true})` as the last thing this run does, right after composing the summary above. This applies whenever this report is the final state, not only the success path: a red-CI stop with the cap exhausted, or any other point where the orchestrator is done and reporting to the human, is equally a reason to stop the loop rather than leave a wakeup pending.
+
 ## Common mistakes
 
 | Mistake | Why it bites |
@@ -478,6 +482,7 @@ Never delete a branch holding work that exists nowhere else. Removing a worktree
 | Stopping because a reviewer said "ready to merge" | That is one opinion, not the exit condition. Exit on a round that earns nothing. |
 | Looping until reviewers fall silent | Subjective nits never run out. The cap keeps cost bounded. |
 | Implementing a finding that hasn't been verified | Reviewers are confidently wrong at a steady rate. Check first. |
+| Leaving a `/loop` wakeup scheduled after reporting the final state | It fires later as a stale resume that just repeats the finished report. Call `ScheduleWakeup({stop: true})` once Phase 6 (or any other final report) is composed. |
 
 ## Red flags
 

@@ -15,7 +15,7 @@ Each plugin below is installed independently — installing this marketplace doe
 
 | Plugin | Description |
 |---|---|
-| [`implement-ticket`](plugins/implement-ticket/README.md) | Takes a ticket from its tracker to a draft PR, using fresh-context reviewers as the quality gate. Requires [superpowers](https://github.com/obra/superpowers). |
+| [`ks`](plugins/implement-ticket/README.md) | (implement-ticket) Takes a ticket from its tracker to a draft PR, using fresh-context reviewers as the quality gate. Requires [superpowers](https://github.com/obra/superpowers). |
 
 ## Adding a new plugin
 

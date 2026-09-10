@@ -6,7 +6,7 @@
   "allowCrossMarketplaceDependenciesOn": ["claude-plugins-official"],
   "plugins": [
     {
-      "name": "implement-ticket",
+      "name": "ks",
       "source": "./plugins/implement-ticket",
       "description": "Take a ticket from its tracker to a draft PR, with fresh-context reviewers as the quality gate."
     }
