@@ -34,11 +34,12 @@ You start as the **orchestrator**. From here on, you never read a ticket, run a 
 - Size gate
 - Spec & plan
 - Implementation
+- Review
 - Land
 
 Mark each in-progress right before its dispatch and completed when that subagent's report comes back — this is the record of where the run stands once the work itself is happening inside subagents you cannot narrate over. Drop "Spec & plan" once Phase 3 takes the short path; there is nothing to track for it.
 
-**The review loop (5b) gets one task per round, added as each round is dispatched rather than upfront** — the round count is not known until the loop actually exits. Insert `Review round N` before `Land`, mark it in-progress on dispatch and completed once that round's triage and fixes land. Stop adding rounds once the loop exits on its own terms (a round earns nothing, or the cap is hit); the list then shows exactly how many rounds this run took.
+**"Review" is a placeholder — the round count is not known until the loop actually exits.** Drop it the instant round 1 is dispatched, replacing it with one task per round, added as each round is dispatched rather than upfront. Insert `Review round N` before `Land`, mark it in-progress on dispatch and completed once that round's triage and fixes land. Stop adding rounds once the loop exits on its own terms (a round earns nothing, or the cap is hit); the list then shows exactly how many rounds this run took.
 
 ## Phase 1 — Intake
 
