@@ -25,7 +25,7 @@ You start as the **orchestrator**. From here on, you never read a ticket, run a 
 
 **A subagent cannot talk to the human — you can.** Wherever an instruction below says "ask" or "stop and ask," a dispatched subagent instead returns the question (`open_questions`, `blocked`, or a named flag) and stops short of deciding it. You read that field, ask the human, and fold the answer into the next dispatch. Phase 3 (the size gate) is the one phase that runs in your own context — every other phase is a subagent.
 
-**You hold, across the whole run:** the ticket id, `worktree_path`, `notes_path`, the PR number once one exists, and the round counter against the cap — never a commit SHA. Every dispatch reads the branch's actual tip itself; told what the tip should be, it will act on that instead of what is actually there. Nothing else needs to survive from one dispatch to the next.
+**You hold, across the whole run:** the ticket id, `worktree_path`, `notes_path`, the PR number once one exists, the round counter against the cap, and `fast_path` once Phase 3 decides it — never a commit SHA. Every dispatch reads the branch's actual tip itself; told what the tip should be, it will act on that instead of what is actually there. Nothing else needs to survive from one dispatch to the next.
 
 **Track the run with a task list.** Before dispatching Phase 1, create one (`TaskCreate`) with these entries, named exactly as below — short mnemonics, not the phase headings verbatim, and no `Phase N —` prefix or number, since a dispatch instruction already names the phase and the list's own order carries the sequence:
 
@@ -138,14 +138,27 @@ If `blocked` or `open_questions` is non-empty, stop and ask the human before dis
 Do this before touching code, so a missing prerequisite fails in seconds rather than an hour in.
 
 1. **Decide the base:** `git fetch origin`, then take the freshly fetched `origin/<default>`. Never a stale local branch. (The branch itself is created in step 5 — do not create one here.)
-2. **Find the real verify legs, in this order:** `.github/workflows/` (or the equivalent CI config) first — for any repo with CI this is the only place the true matrix is recorded; then CLAUDE.md / AGENTS.md / CONTRIBUTING; then README; then project files (`package.json` scripts, `*.slnx`/`*.sln`, `Cargo.toml`, `pyproject.toml`, `Makefile`) as a discovery hint for *what* builds, which is not yet a command.
+2. **Check the repo-level Recon cache before rediscovering anything.** Verify legs and the release-note convention almost never change between tickets on the same repo, so this is shared across every worktree — unlike the notes file in step 6, which is per-ticket:
 
-   Write down a **list of legs**, not one blurred command. For each: its command, whether it is intrinsic (a single invocation already covers the matrix) or a separate toolchain, and whether it is cheap enough to run every review round or belongs once before the PR.
+   ```bash
+   CACHE="$(git rev-parse --path-format=absolute --git-common-dir)/implement-ticket-recon-cache.md"
+   ```
 
-   **Capture the flags that decide green from red.** A CI build with `-warnaserror`, `--strict`, `-Werror` or a coverage floor is a different verdict from the same build without it. A local green missing those flags is a false green.
+   The cache is valid only when **all** hold:
+   - it exists
+   - every source file it names still exists and hashes the same as recorded
+   - nothing that outranks those sources in the discovery order below exists now but didn't at cache time (a CI workflow added since the last cached ticket outranks the CLAUDE.md fallback the cache was built from, even though CLAUDE.md itself hasn't changed)
 
-   **A leg that cannot run locally** — needs Docker, a pinned toolchain, credentials — is named explicitly as not run, with the reason. Never let silence imply it passed.
-3. **Find the release-note convention**, if the repo has one: `CHANGELOG.md`, `docs/release-notes/`, `.changeset/`, `newsfragments/`. Where one exists, an entry is part of the definition of done — read the last few entries and match their register. Cosmetic changes (a typo fix, a rename, prose edits) usually get no entry; check what the repo actually does before adding one.
+   **Valid:** read `verify_legs` and `release_note_convention` straight from it, skip steps 2a-2b, and go to step 4. **Invalid or absent:** run 2a-2b, then write the cache — source file paths and a hash for each, plus the discovered legs and convention — before moving on. A lost write to a cache another parallel ticket's Recon is also refreshing is harmless: worst case, the next ticket rediscovers once more.
+   2a. **Find the real verify legs, in this order:** `.github/workflows/` (or the equivalent CI config) first — for any repo with CI this is the only place the true matrix is recorded; then CLAUDE.md / AGENTS.md / CONTRIBUTING; then README; then project files (`package.json` scripts, `*.slnx`/`*.sln`, `Cargo.toml`, `pyproject.toml`, `Makefile`) as a discovery hint for *what* builds, which is not yet a command.
+
+      Write down a **list of legs**, not one blurred command. For each: its command, whether it is intrinsic (a single invocation already covers the matrix) or a separate toolchain, and whether it is cheap enough to run every review round or belongs once before the PR.
+
+      **Capture the flags that decide green from red.** A CI build with `-warnaserror`, `--strict`, `-Werror` or a coverage floor is a different verdict from the same build without it. A local green missing those flags is a false green.
+
+      **A leg that cannot run locally** — needs Docker, a pinned toolchain, credentials — is named explicitly as not run, with the reason. Never let silence imply it passed.
+   2b. **Find the release-note convention**, if the repo has one: `CHANGELOG.md`, `docs/release-notes/`, `.changeset/`, `newsfragments/`. Where one exists, an entry is part of the definition of done — read the last few entries and match their register. Cosmetic changes (a typo fix, a rename, prose edits) usually get no entry; check what the repo actually does before adding one.
+3. **Never cache `gh auth` or the worktree.** Auth can be revoked between tickets and every worktree is unique by construction — both stay real-time checks regardless of what step 2 found.
 4. **Confirm `gh auth status`** — the run ends in a PR unless told otherwise.
 5. **Create a dedicated worktree** with a collision-proof name. Named worktrees are shared, and a parallel job will take a plain `issue-<n>` directory out from under you. Derive the branch and directory from **one** suffix so they can be matched up later:
 
@@ -208,6 +221,17 @@ Every box past this point is a subagent dispatch (Phase 4, or the Phase 5 Implem
 
 **But check the cost against the change before you escalate.** A spec commits the ticket to three review passes — spec, plan, code. That is right for work whose *shape* is uncertain, and wrong for work that is merely careful: a validation tightened, a message corrected, a bug fixed in one function. If you cannot name a decision the spec would settle, there is nothing for it to do, and the predicate that fired was read too generously. Escalate on uncertainty about **what to build**, never on the delicacy of building it.
 
+**Fast-path tier.** Once no escalation predicate fires, check whether the ticket also qualifies for the fast path. All of these must hold:
+
+| Requirement | Reading |
+|---|---|
+| Single file touched (plus its own test file, if any) | Not "one module" — one file. A change that ripples into a second file is not fast-path. |
+| Mechanical intent | A version bump, a rename, a lint/format fix, a one-clause bug fix. Not a new code path, not new branching logic. |
+| One acceptance criterion, or all criteria collapse to the same line of code | Multiple independent criteria earns `conformance` anyway — send it through the normal path. |
+| Not adjacent to a security-earning trigger | If the axis-earning table (Phase 5b) would earn `security` for this diff's neighbourhood, it is not fast-path, full stop. |
+
+This is your call, same as the escalation predicates above — carry `fast_path: true` into the Phase 5a dispatch prompt. It changes only the default review-round cap in Phase 5b; nothing about Phase 1, 2, or how the ticket gets implemented.
+
 ## Phase 4 — Long path only: spec, then plan
 
 **Dispatched as:** two subagents in sequence, Spec then Plan — the plan needs the reviewed spec, so do not dispatch it early to save a round trip.
@@ -238,7 +262,7 @@ Only once the plan is reviewed does Phase 5a implement and run the loop proper o
 
 ### 5a — Implementation
 
-**Dispatched as:** one subagent. Long path: given `plan_path`. Short path (Phase 3 said "Implement directly"): given the ticket and `acceptance_checklist` directly, no plan.
+**Dispatched as:** one subagent. Long path: given `plan_path`. Short path (Phase 3 said "Implement directly"): given the ticket and `acceptance_checklist` directly, no plan. If Phase 3 set `fast_path: true`, that rides along too — it does not change how this subagent implements anything, only what Phase 5b does with it.
 
 Implements via superpowers:test-driven-development, gets the cheap verify legs green locally, then **opens the draft PR.** Once the first commit builds and tests green, push the branch and `gh pr create --draft`. The review loop reports into it, so the human can watch rounds land instead of waiting for a silent hour. **It stays a draft for the whole loop** — see Phase 6 for the only conditions that take it out of draft.
 
@@ -257,6 +281,10 @@ If this PR is **stacked** on another branch rather than the default one, `--base
 ### 5b — The review loop
 
 **Runs as:** you drive the loop; each round is its own subagent dispatch. Cap at **3 rounds** (`--max-rounds 5` to extend).
+
+**A `fast_path: true` ticket caps at 1 round, not 3.** Round 1 runs with whatever axes the earning table gives it — usually just `correctness` — and if it decides `stop`, the loop exits there; no second round is dispatched by default.
+
+**The fast path is a bet that costs nothing when it's wrong.** If round 1 on a fast-path ticket returns any must-fix finding, treat the ticket as no longer fast-path from that point on: it reverts to the standard cap (3, or 5 with `--max-rounds`) for any further rounds. A real defect means the "this is trivial" read was wrong, and the rest of the loop should run as if it never was.
 
 ```dot
 digraph loop {
@@ -501,6 +529,10 @@ Never delete a branch holding work that exists nowhere else. Removing a worktree
 | Leaving a round's subagent running after its report is read | It outlives its own view of the branch and can misdiagnose a later round's commit as a rogue session. |
 | Writing a probe with a bare `cat >` or similar stdin redirect | Blocks forever with nothing written and no error — use a heredoc or the Write tool instead. |
 | Calling the loop converged when every must-fix finding is in scaffolding the implementation invented | It's reviewing its own harness, not the ticket. Exit regardless of the cap. |
+| Marking a multi-file or ambiguous ticket `fast_path` to save review cost | The tier is for single-file mechanical changes only — misapplied, it caps review at 1 round on work that needed the full loop. |
+| Keeping `fast_path` set after round 1 found a must-fix | The bet was wrong; the ticket reverts to the standard cap, not a second fast round. |
+| Trusting the Recon cache without re-hashing its source files | A CI workflow or CLAUDE.md can change between tickets; an unhashed cache hit is a stale verify-legs list masquerading as a fresh one. |
+| Treating a Recon cache hit as proof `gh auth` or the worktree are already set up | Only `verify_legs` and `release_note_convention` are cached — auth and the worktree are always rechecked live, cache or no cache. |
 
 ## Red flags
 
@@ -524,3 +556,6 @@ Never delete a branch holding work that exists nowhere else. Removing a worktree
 - About to dispatch the next round without stopping a completed round's leftover subagent
 - About to write a probe command that could block on stdin instead of using a heredoc
 - About to call a round's findings converging when they live entirely in invented scaffolding
+- About to tag a ticket `fast_path` because it seems small, not because it meets every requirement in the table
+- About to read the Recon cache without checking its source-file hashes still match
+- About to skip confirming `gh auth status` or creating a fresh worktree because the Recon cache hit
