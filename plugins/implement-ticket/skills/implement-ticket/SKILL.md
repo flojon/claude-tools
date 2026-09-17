@@ -27,7 +27,7 @@ You start as the **orchestrator**. From here on, you never read a ticket, run a 
 
 **You hold, across the whole run:** the ticket id, `worktree_path`, `notes_path`, the PR number once one exists, the round counter against the cap, and `fast_path` once Phase 3 decides it — never a commit SHA. Every dispatch reads the branch's actual tip itself; told what the tip should be, it will act on that instead of what is actually there. Nothing else needs to survive from one dispatch to the next.
 
-**Track the run with a task list.** Before dispatching Phase 1, create one (`TaskCreate`) with these entries, named exactly as below — short mnemonics, not the phase headings verbatim, and no `Phase N —` prefix or number, since a dispatch instruction already names the phase and the list's own order carries the sequence:
+**Track the run with a task list, if the tool for one exists in this session.** Before dispatching Phase 1, create one (`TaskCreate`) with these entries, named exactly as below — short mnemonics, not the phase headings verbatim, and no `Phase N —` prefix or number, since a dispatch instruction already names the phase and the list's own order carries the sequence. If no task-list tool is available, say so once and track phase transitions in your own messages instead — narrate "Dispatching Phase N" as each one starts, same as you would update the list:
 
 - Intake
 - Recon
