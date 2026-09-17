@@ -2,15 +2,24 @@
   "name": "ks",
   "displayName": "implement-ticket",
   "description": "Take a ticket from its tracker to a draft PR, with fresh-context reviewers as the quality gate.",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "author": {
     "name": "Jonas Flodén"
   },
   "license": "MIT",
   "repository": "https://github.com/flojon/claude-tools",
   "homepage": "https://github.com/flojon/claude-tools/tree/main/plugins/implement-ticket",
-  "keywords": ["github", "pull-request", "code-review", "ticket", "issue"],
+  "keywords": [
+    "github",
+    "pull-request",
+    "code-review",
+    "ticket",
+    "issue"
+  ],
   "dependencies": [
-    { "name": "superpowers", "marketplace": "claude-plugins-official" }
+    {
+      "name": "superpowers",
+      "marketplace": "claude-plugins-official"
+    }
   ]
 }
