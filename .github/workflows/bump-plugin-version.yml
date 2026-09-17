@@ -1,0 +1,85 @@
+name: Bump plugin version
+
+# Runs after a PR merges into main, not on every push, so this workflow
+# never re-triggers itself when it pushes the bump commit.
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Determine bump level from PR labels
+        id: level
+        env:
+          LABELS_JSON: ${{ toJson(github.event.pull_request.labels.*.name) }}
+        run: |
+          LEVEL="patch"
+          if echo "$LABELS_JSON" | grep -q '"version:major"'; then
+            LEVEL="major"
+          elif echo "$LABELS_JSON" | grep -q '"version:minor"'; then
+            LEVEL="minor"
+          fi
+          echo "level=$LEVEL" >> "$GITHUB_OUTPUT"
+          echo "Bump level: $LEVEL"
+
+      - name: Find plugins touched by this PR
+        id: plugins
+        run: |
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          MERGE_SHA="${{ github.event.pull_request.merge_commit_sha }}"
+          CHANGED=$(git diff --name-only "$BASE_SHA" "$MERGE_SHA" -- plugins/ | cut -d/ -f2 | sort -u)
+          echo "Changed plugin dirs:"
+          echo "$CHANGED"
+          {
+            echo "dirs<<PLUGIN_EOF"
+            echo "$CHANGED"
+            echo "PLUGIN_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Bump each changed plugin's version
+        if: steps.plugins.outputs.dirs != ''
+        run: |
+          LEVEL="${{ steps.level.outputs.level }}"
+          while IFS= read -r PLUGIN; do
+            [ -z "$PLUGIN" ] && continue
+            MANIFEST="plugins/$PLUGIN/.claude-plugin/plugin.json"
+            [ -f "$MANIFEST" ] || continue
+
+            CURRENT=$(jq -r '.version' "$MANIFEST")
+            MAJOR=$(echo "$CURRENT" | cut -d. -f1)
+            MINOR=$(echo "$CURRENT" | cut -d. -f2)
+            PATCH=$(echo "$CURRENT" | cut -d. -f3)
+
+            case "$LEVEL" in
+              major) NEW="$((MAJOR + 1)).0.0" ;;
+              minor) NEW="$MAJOR.$((MINOR + 1)).0" ;;
+              *)     NEW="$MAJOR.$MINOR.$((PATCH + 1))" ;;
+            esac
+
+            echo "Bumping $PLUGIN: $CURRENT -> $NEW"
+            jq --arg v "$NEW" '.version = $v' "$MANIFEST" > "$MANIFEST.tmp"
+            mv "$MANIFEST.tmp" "$MANIFEST"
+          done <<< "${{ steps.plugins.outputs.dirs }}"
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet; then
+            echo "No version changes to commit"
+            exit 0
+          fi
+          git add plugins/*/.claude-plugin/plugin.json
+          git commit -m "chore: bump plugin version(s) after #${{ github.event.pull_request.number }}"
+          git push origin main
