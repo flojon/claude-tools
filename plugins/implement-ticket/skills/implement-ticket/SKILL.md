@@ -304,7 +304,7 @@ digraph loop {
 }
 ```
 
-**Dispatched as:** one subagent per round, given `worktree_path`, `notes_path`, `pr_number`, the round number, and `light_or_full` (`axes_earned` for round 1; the previous round's `next_round_recommendation` after that).
+**Dispatched as:** one subagent per round, given `worktree_path`, `notes_path`, `pr_number`, the round number, and the axis list to run (`axes_earned` for round 1; the previous round's `next_round_recommendation` after that — see "Round 2 onward is light by default" below).
 
 **A round subagent's first step is reconstructing round history from disk, not memory.** Read the notes file and the rolling PR comment before anything else — that is the only record of what earlier rounds found, fixed, and rejected, and it is what makes thrash (a round reversing an earlier one) and whack-a-mole (the same defect class recurring) detectable without seeing prior transcripts.
 
@@ -315,7 +315,7 @@ Each round:
    **Reviewers must not re-run the full suite.** N reviewers each running a nine-leg matrix is N-1 redundant runs of a result already in hand, and on a loaded machine it is what makes timing-sensitive tests flake and builds crawl. What reviewers *should* run is small and targeted: a throwaway probe that proves one finding, or a filtered run of the tests their finding touches. Executing code to prove a claim is the point; re-establishing a fact the loop already established is waste.
 
    **Write any probe file with a heredoc or the Write tool, never a bare redirect that can block on stdin.** A probe that does not terminate on its own hangs the round with nothing to show for it; wrap anything that might not exit under a timeout.
-2. **Dispatch fresh reviewers in parallel** per superpowers:requesting-code-review — each gets the ticket text, the acceptance checklist, the notes path and the diff range, never any session history. Five axes, **all of them from round 1**:
+2. **Dispatch fresh reviewers in parallel** per superpowers:requesting-code-review — each gets the ticket text, the acceptance checklist, the notes path and the diff range, never any session history. Round 1 earns from up to five axes; round 2 onward runs only the axes still live (see "Round 2 onward is light by default"):
    - **security** — attack vectors, injection (command, SQL, path, template), unvalidated input reaching a shell, a filesystem path, a URL or a deserializer, secrets in logs or errors, credentials sent somewhere they were not scoped for, remote code execution, escalation through a config value the attacker controls. Use the `security-review` skill if one is installed. This axis runs in **round 1** and is never dropped when narrowing later rounds — a design that is unsafe is cheapest to fix before anything is built on it.
    - correctness bugs
    - conformance to the acceptance criteria
@@ -336,7 +336,7 @@ Each round:
 
    One axis and one reviewer is a legitimate round 1 for a small change in a quiet corner. Say in the report which axes ran and which were not earned, so nobody reads a narrow review as a broad one.
 
-   **Between rounds, narrow.** The rolling PR comment already carries what the previous round cleared and what it rejected, so reviewers spend their pass on the delta and on the axes still live. This raises signal and lowers cost.
+   **Between rounds, narrow — this is the default, not an option.** The rolling PR comment already carries what the previous round cleared and what it rejected, so reviewers spend their pass on the delta and on the axes still live, per "Round 2 onward is light by default" below. This raises signal and lowers cost.
 
    **A reviewer that stops producing output has stopped, whatever its status says.** Before triaging, stat every reviewer's output file. Any reviewer whose output has not grown in 10 minutes while its siblings have finished is treated as stopped, whatever its status says — rounds take minutes, not hours. Stop it, then either re-dispatch that axis once or record it in `axes_unreported`. Never let a round wait on one, never read its silence as a clean pass on its axis, and never begin the next round with a reviewer still outstanding.
 
@@ -366,21 +366,22 @@ gh pr comment "$PR" --edit-last --create-if-none --body-file "$ROUND_SUMMARY"
 
 If no PR exists yet (the run was told not to open one), post the same rolling comment on the ticket instead — `gh issue comment <n> --edit-last --create-if-none` on GitHub, or the equivalent update-in-place call on whatever tracker this is. Editing one comment matters more than where it lives: a round per comment buries the ticket.
 
-### A round can be light
+### Round 2 onward is light by default
 
-A round is not all-or-nothing. When the last round's findings were narrow, the next one should be too — a full five-axis fan-out against a one-function change re-confirms axes that already went quiet, at full cost.
+Full five-axis fan-out is a round-1 cost, spent because nothing is known yet about which axes this diff earns. Once round 1 has reported, that's no longer true, and **every round after it narrows to the delta and to the axes still live, by default** — going back to a full fan-out is the exception that needs a reason, not the default that needs an excuse to leave.
 
-**Run a light round — one or two reviewers, scoped to the delta — when all of these hold:**
+**Carry axes forward per-axis, not as one round-wide light/full flag:**
 
-- every must-fix finding last round came from **one** axis
-- the fix is confined to the delta and did not change the design
-- **no security finding last round** — a security finding always earns a full round, because the axes that went quiet were quiet about different code
+- an axis that produced a must-fix or worth-fixing finding last round **stays live** — the fix needs checking, and the axis clearly has purchase on this code
+- an axis that reported clean last round **retires** for the next round unless the delta plausibly re-triggers it (a fix that added a subprocess call re-earns security even if security was clean before; a fix that only renamed a variable does not re-earn conformance)
+- **security never retires once earned** — carry it into every remaining round regardless of what it found, per the round-1 rule above
+- an axis not earned in round 1 can still be earned mid-loop if a fix's delta newly qualifies it (table in step 2) — earning is about the code touched, not the round number
 
-A light round still counts against the cap, still gets fresh reviewers, and still carries the security axis alongside whichever one fired. What it drops is the axes that found nothing against code that has not changed since. Set `next_round_recommendation` to `light` only when all three hold; otherwise `full`.
+Dispatch fresh reviewers only for the axes still live under these rules, scoped to the delta plus enough surrounding context to judge it. Set `next_round_recommendation` to that axis list (not a bare `light`/`full` label), so the next round's dispatch is unambiguous about what runs.
 
-**Say which rounds were light** in the report and the rolling comment. "Three rounds" and "two full rounds and a light one" are different claims about how hard the work was looked at, and the reader is entitled to the second.
+**Widen back to a full round** — all axes not yet earned re-checked against the whole diff, not just the delta — only when one of these holds: the fix changed the design rather than staying confined to the reported issue, the delta is broad enough that a retired axis's earlier clean result no longer covers it, or a light round's reviewer flags something outside its scoped delta (the narrowing was wrong; don't trust it, widen instead).
 
-If a light round finds something outside its narrowed scope, the narrowing was wrong: widen back to a full round rather than trusting it.
+**Say which rounds were light and which axes ran** in the report and the rolling comment. "Three rounds" and "one full round and two light ones, narrowed to correctness and simplification" are different claims about how hard the work was looked at, and the reader is entitled to the second.
 
 **Hitting the cap never means shipping a known defect.** Fix that round's must-fix findings, then stop looping, and say plainly in the report and the PR body that those fixes were not independently re-reviewed. Offer `--max-rounds 5` and one more round on the delta as the cheap way to close it.
 
