@@ -315,11 +315,12 @@ Each round:
    **Reviewers must not re-run the full suite.** N reviewers each running a nine-leg matrix is N-1 redundant runs of a result already in hand, and on a loaded machine it is what makes timing-sensitive tests flake and builds crawl. What reviewers *should* run is small and targeted: a throwaway probe that proves one finding, or a filtered run of the tests their finding touches. Executing code to prove a claim is the point; re-establishing a fact the loop already established is waste.
 
    **Write any probe file with a heredoc or the Write tool, never a bare redirect that can block on stdin.** A probe that does not terminate on its own hangs the round with nothing to show for it; wrap anything that might not exit under a timeout.
-2. **Dispatch fresh reviewers in parallel** per superpowers:requesting-code-review — each gets the ticket text, the acceptance checklist, the notes path and the diff range, never any session history. Round 1 earns from up to five axes; round 2 onward runs only the axes still live (see "Round 2 onward is light by default"):
+2. **Dispatch fresh reviewers in parallel** per superpowers:requesting-code-review — each gets the ticket text, the acceptance checklist, the notes path and the diff range, never any session history. Round 1 earns from up to six axes; round 2 onward runs only the axes still live (see "Round 2 onward is light by default"):
    - **security** — attack vectors, injection (command, SQL, path, template), unvalidated input reaching a shell, a filesystem path, a URL or a deserializer, secrets in logs or errors, credentials sent somewhere they were not scoped for, remote code execution, escalation through a config value the attacker controls. Use the `security-review` skill if one is installed. This axis runs in **round 1** and is never dropped when narrowing later rounds — a design that is unsafe is cheapest to fix before anything is built on it.
-   - correctness bugs
+   - correctness bugs, including swallowed errors, silent fallbacks, and missing error logging
    - conformance to the acceptance criteria
    - simplification and reuse
+   - **type design** — encapsulation, invariant expression and enforcement, and whether a new type earns its own existence. Earned only when Phase 3's **New public API surface** predicate already fired for this ticket — it never fires on its own, so it does not add cost to ordinary tickets.
    - **use the output** — for any change a human reads (an error message, CLI output, a doc, an API exception), one reviewer builds the real output on a concrete example and *follows its advice literally*, reporting what happens.
 
    Introducing an axis late resets the loop: rounds that should be converging start finding worse defects than the rounds before them. That is a scheduling mistake, not a discovery.
@@ -329,9 +330,10 @@ Each round:
    | Axis | Earn it with |
    |---|---|
    | security | untrusted or configured input reaching a shell, a path, a URL, a query or a deserializer; credentials; a subprocess; a network call; a sandbox or confinement rule |
-   | correctness | always — this is the floor |
+   | correctness | always — this is the floor (including swallowed errors, silent fallbacks, and missing error logging) |
    | conformance | a ticket with several criteria, a staged ticket, or one whose body the comments have rewritten |
    | simplification | a diff large enough to have structure worth questioning, or one that touched code it did not need to |
+   | type design | Phase 3's **New public API surface** predicate already fired for this ticket — never on its own |
    | use the output | a change to anything a human reads: an error message, CLI output, a doc, a public exception |
 
    One axis and one reviewer is a legitimate round 1 for a small change in a quiet corner. Say in the report which axes ran and which were not earned, so nobody reads a narrow review as a broad one.
@@ -368,7 +370,7 @@ If no PR exists yet (the run was told not to open one), post the same rolling co
 
 ### Round 2 onward is light by default
 
-Full five-axis fan-out is a round-1 cost, spent because nothing is known yet about which axes this diff earns. Once round 1 has reported, that's no longer true, and **every round after it narrows to the delta and to the axes still live, by default** — going back to a full fan-out is the exception that needs a reason, not the default that needs an excuse to leave.
+Full six-axis fan-out is a round-1 cost, spent because nothing is known yet about which axes this diff earns. Once round 1 has reported, that's no longer true, and **every round after it narrows to the delta and to the axes still live, by default** — going back to a full fan-out is the exception that needs a reason, not the default that needs an excuse to leave.
 
 **Carry axes forward per-axis, not as one round-wide light/full flag:**
 
@@ -514,7 +516,7 @@ Never delete a branch holding work that exists nowhere else. Removing a worktree
 | Calling a test failure a finding without re-running it alone | Under heavy parallel load, timing-sensitive tests fail in code the change never touched. Confirm in isolation first. |
 | Every reviewer re-running the full suite | The loop already ran it and can hand them the output. Reviewers run targeted probes, not the matrix. |
 | A full fan-out against a one-function fix | Re-confirms axes that went quiet about code that has not changed. Run a light round instead. |
-| Running every axis because the list has five | Axes are earned by what the change touches. An unearned axis costs a reviewer and returns nits. |
+| Running every axis because the list has six | Axes are earned by what the change touches. An unearned axis costs a reviewer and returns nits. |
 | Reading "small diff" as "low risk" | A twenty-line change to a confinement check or a credential path is small and dangerous. Judge the neighbourhood, not the line count. |
 | Only checking for prior work on *this* ticket | Parallel tickets collide through files. Check what every open PR is editing before scoping. |
 | Fixing a shared-code finding in both PRs at once | It lands twice and conflicts. Fix it where that code belongs and note it in the other. |
