@@ -284,7 +284,7 @@ If this PR is **stacked** on another branch rather than the default one, `--base
 
 Drive pr-review-loop with:
 
-- `context` = the ticket text and acceptance checklist; `notes_path`, `pr_number` as already held
+- `context` = the ticket text and acceptance checklist; `notes_path`, `pr_number`, `verify_legs` as already held
 - `fix_mode: fix-inline` — a round subagent fixes must-fix and agreed worth-fixing findings itself before deciding whether to continue, exactly as Phase 5a's implementation was built
 - `seed_axes` = Phase 5a's `axes_earned` for round 1; each later round's `next_round_recommendation` after that
 - `cap`: **3 rounds** (`--max-rounds 5` to extend)
@@ -311,9 +311,17 @@ digraph loop {
 }
 ```
 
-**Dispatched as:** one subagent per round, given `worktree_path`, `notes_path`, `pr_number`, the round number, and the axis list to run — pr-review-loop's "Running one round" describes what that subagent does with them, including how it builds once, dispatches reviewers, collects inbound comments, triages, fixes, and updates the rolling PR comment.
+**Dispatched as:** one subagent per round, given `worktree_path`, `notes_path`, `pr_number`, the round number, and the axis list to run — pr-review-loop's "Running one round" describes what that subagent does with them, including how it builds once, dispatches reviewers, collects inbound comments, triages, and fixes.
 
-**You are pr-review-loop's "caller"** for the purposes of its control-loop section: after each round's report, stop that round's subagent now that its report is read, list live agents and stop any left over from a completed one, and follow pr-review-loop's rules (`axes_unreported` non-empty → re-dispatch the missing axis or accept the record; `flags` non-empty → stop and ask the human before dispatching anything further; `decision: stop` or the cap hit → exit the loop and record why; otherwise dispatch the next round with `light_or_full` set to `next_round_recommendation`).
+**You post the rolling comment, not pr-review-loop.** After each round's report, take its `round_summary` and update one comment on the PR, edited in place, never a new comment per round:
+
+```bash
+gh pr comment "$PR" --edit-last --create-if-none --body-file "$ROUND_SUMMARY"
+```
+
+If no PR exists yet (the run was told not to open one), post the same rolling comment on the ticket instead — `gh issue comment <n> --edit-last --create-if-none` on GitHub, or the equivalent update-in-place call on whatever tracker this is. Editing one comment matters more than where it lives: a round per comment buries the ticket.
+
+**You are pr-review-loop's "caller":** after posting, follow pr-review-loop's "caller's control loop" section as written — nothing about that loop is specific to this skill. The only thing to add here is what happens once it exits: on `decision: stop` or the cap, go to Phase 6; the cap-hit case still needs that round's must-fix findings fixed per `fix_mode: fix-inline` before you do.
 
 **Findings outside the ticket's scope** get reported to the human through the orchestrator (`flags` includes `out-of-scope-finding`, with the finding named), not built and not filed. Filing an issue is a remote write nobody asked for.
 

@@ -54,7 +54,7 @@ You are the **orchestrator**: dispatch one fresh subagent per phase (Agent tool,
    CACHE="$(git rev-parse --path-format=absolute --git-common-dir)/implement-ticket-recon-cache.md"
    ```
 
-   Valid under the same rule (every source file it names still exists and hashes the same); invalid or absent, rediscover — CI config first, then CLAUDE.md/AGENTS.md/CONTRIBUTING, then README, then project files — and write it back.
+   Valid under the same rule as implement-ticket's Phase 2 — all of: it exists; every source file it names still exists and hashes the same as recorded; nothing that outranks those sources in the discovery order below exists now but didn't at cache time. Invalid or absent, rediscover — CI config first, then CLAUDE.md/AGENTS.md/CONTRIBUTING, then README, then project files — and write it back.
 
 6. **Write a notes file for this review**, same shape and purpose as implement-ticket's: reviewers and rounds read it, never your context.
 
@@ -76,18 +76,20 @@ You are the **orchestrator**: dispatch one fresh subagent per phase (Agent tool,
 **Runs as:** you drive it, per **REQUIRED SUB-SKILL pr-review-loop**, with:
 
 - `fix_mode: report-only` — a round subagent never edits the branch; findings come back untouched, for the human to act on in Phase 3
-- `seed_axes` computed fresh from pr-review-loop's axis table against the whole diff — there is no implement-ticket-style size gate here, so type design is earned by the same predicate implement-ticket's Phase 3 uses on its own: anything a consumer outside this repo could call, or an export/codegen surface publishes
+- `verify_legs` — pass through Phase 1's value; there is no implement-ticket-style size gate here, so `seed_axes` is left unset and pr-review-loop computes round 1 fresh from its own axis table (including its default type-design predicate) against the whole diff
 - `cap`: **1 round** by default; `--rounds N` raises it
+
+pr-review-loop never posts anywhere on its own — it hands back each round's `round_summary` and writes it to `notes_path`. That is exactly what this skill needs: nothing touches the PR until Phase 3 asks the human.
 
 A round beyond the first only earns its cost once the diff has actually changed — a new push, or a fix accepted in Phase 3. **If nothing has changed since the last round and the human asks for another anyway, say so and skip the dispatch** rather than re-running an identical review at the same cost for the same answer.
 
-Follow pr-review-loop's control loop exactly as implement-ticket does: stop each round's subagent once its report is read; `flags` non-empty means stop and ask before anything else; `decision: stop` or the cap hit means exit and move to Phase 3.
+Follow pr-review-loop's "caller's control loop" section as written; when it exits (`decision: stop` or the cap hit), move to Phase 3.
 
 ## Phase 3 — Offer next actions
 
 **Runs in your own context** — nothing here is a remote write until the human says so.
 
-Once the loop exits, you hold the final round's `must_fix`, `rejected`, and the cumulative rolling-comment content.
+Once the loop exits, you hold the final round's `must_fix`, `rejected`, `round_summary`, and the cumulative round history pr-review-loop wrote to `notes_path`.
 
 1. **Summarize for the human:** what ran (axes, rounds), what's still outstanding (`must_fix` unresolved), what was rejected and why.
 2. **Offer to post it**, asking which of:

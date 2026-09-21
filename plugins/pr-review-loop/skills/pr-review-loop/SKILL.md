@@ -25,12 +25,13 @@ Run fresh-context reviewer subagents against a diff, round after round, until a 
 
 ## Returns to the caller, every round
 
-- `round`, `light_or_full`
+- `round`
 - `axes_dispatched`, `axes_reported`, `axes_unreported`: `[{axis, reason}]` — `dispatched == reported ∪ unreported`, and a round cannot return `decision: stop` while `axes_unreported` is non-empty
 - `must_fix`: `[{summary, axis, fixed}]` — `fixed` is always `false` under `fix_mode: report-only`
 - `rejected`: `[{summary, reason}]`
+- `round_summary`: the round's write-up — axes dispatched/reported/unreported (with why), what was found, fixed, and rejected — as markdown text; what the caller does with it (post it, save it, discard it) is entirely the caller's call, never this skill's
 - `decision`: `continue | stop`, with `decision_reason`
-- `next_round_recommendation`: `full | light`, meaningful only when `decision == continue`
+- `next_round_recommendation`: the live axis list for the next round — meaningful only when `decision == continue` (see "Round 2 onward narrows by default" below; never a bare `full`/`light` label)
 - `flags`: `[]` or any of `thrash`, `whack-a-mole`, `diverging`, `out-of-scope-finding`, `unexpected-commit`, `self-referential` — non-empty means the caller stops and asks the human, cap or no cap
 
 ## Which axes a change earns
@@ -41,14 +42,14 @@ Run fresh-context reviewer subagents against a diff, round after round, until a 
 | correctness | always — this is the floor, and includes swallowed errors, silent fallbacks, and missing error logging |
 | conformance | a ticket/PR with several criteria, a staged ticket, or one whose body the comments have rewritten |
 | simplification | a diff large enough to have structure worth questioning, or one that touched code it did not need to |
-| type design | encapsulation, invariant expression and enforcement, and whether a new type earns its own existence — earned only when the caller's own new-public-API-surface predicate has fired; it never fires on its own |
+| type design | encapsulation, invariant expression and enforcement, and whether a new type earns its own existence — earned only by the **new public API surface** predicate: anything a consumer outside this repo can call, or that an export/codegen surface publishes; it never fires on its own. A caller may narrow this predicate for its own domain, but state the narrowing rather than restating the predicate itself |
 | use the output | a change to anything a human reads: an error message, CLI output, a doc, a public exception — one reviewer builds the real output on a concrete example and follows its advice literally |
 
 Round 1 (or the first round this loop runs for a given diff) earns from all six; **security never retires** once earned. Choose by what the change touches, not by the length of this list — five reviewers against a one-function fix spends as much as five against a credential path and buys far less. One axis and one reviewer is a legitimate round 1 for a small change in a quiet corner; say in the report which axes ran and which were not earned, so nobody reads a narrow review as a broad one.
 
 ## Running one round
 
-A round subagent's first step is reconstructing round history from disk, not memory: read `notes_path` and the rolling PR comment before anything else — the only record of what earlier rounds found, fixed, and rejected, and what makes thrash and whack-a-mole detectable without seeing prior transcripts.
+A round subagent's first step is reconstructing round history from disk, not memory: read `notes_path` before anything else — the durable record of what earlier rounds found, fixed, and rejected (each round appends its own `round_summary` there, per step 7 below), and what makes thrash and whack-a-mole detectable without seeing prior transcripts.
 
 1. **Build and test first, once, and hand reviewers the result.** A red diff never goes to reviewers, and a green one does not need proving again by each of them. Put the command and its output in `notes_path`; tell every reviewer the suite is green as of this commit.
 
@@ -64,13 +65,14 @@ A round subagent's first step is reconstructing round history from disk, not mem
 
    **Watch the load.** Reviewers run builds and test suites; enough of them at once, or alongside other jobs on the same machine, turns a fast build slow and makes timing-sensitive tests flake in code the change never touched. Confirm a suspected flake by running that test alone before believing it.
 
-3. **Collect the inbound comments too.** Findings do not only come from the reviewers just dispatched — read what has arrived since the last round on the PR (and the ticket, if there is one):
+3. **Collect the inbound comments too.** Findings do not only come from the reviewers just dispatched — read what has arrived since the last round on **both** the PR and the ticket, if there is one:
 
    ```bash
    gh pr view "$PR" --json comments,reviews
+   gh issue view <n> --json comments
    ```
 
-   These go through the same triage as everything else. A bot is a reviewer that is confidently wrong at a higher rate, not a lower one. A passing bot check is not an approval and not a review seat — never block a round waiting for one, and never count its silence as a clean pass; note that it did not report and move on.
+   These go through the same triage as everything else. A bot is a reviewer that is confidently wrong at a higher rate, not a lower one. A passing bot check is not an approval and not a review seat — never block a round waiting for one, and never count its silence as a clean pass; note that it did not report and move on. If the repo has a reviewer that only runs on a manual trigger, say so in the report so the human can fire it — do not trigger it directly, since that spends someone else's quota.
 
 4. **Triage every finding** as must-fix / worth-fixing / noise, per superpowers:receiving-code-review. Verify each claim against the code before accepting it — a wrong finding earns a written rebuttal, not a compliant edit.
 
@@ -78,13 +80,7 @@ A round subagent's first step is reconstructing round history from disk, not mem
 
 6. **Evaluate whether another round is worth it.** Record `decision`/`decision_reason` either way.
 
-7. **Update the rolling comment on the PR** — one comment, edited in place, never a new comment per round:
-
-   ```bash
-   gh pr comment "$PR" --edit-last --create-if-none --body-file "$ROUND_SUMMARY"
-   ```
-
-   If there is no PR yet, post the same rolling comment on the ticket instead — editing one comment in place matters more than where it lives. Carry the cumulative history: for each round, the axes dispatched/reported/unreported (with why), what was found, fixed, and rejected, so a reader arriving at any moment sees the whole story in one place.
+7. **Write `round_summary` and append it to `notes_path`.** Carry the cumulative history: for each round, the axes dispatched/reported/unreported (with why), what was found, fixed, and rejected, so a reader arriving at any moment sees the whole story in one place. **This loop never posts anywhere** — no `gh pr comment`, no `gh issue comment` — a round is a fresh-context subagent with no way to ask a human first, so writing to a PR or ticket is always the caller's decision, made in the caller's own context, not something a round does on its own initiative. Return `round_summary` to the caller; whether and where to post it is entirely up to them.
 
 ## Round 2 onward narrows by default
 
@@ -99,7 +95,7 @@ Carry axes forward per-axis, not as one round-wide light/full flag:
 
 Widen back to a full round — all axes not yet earned re-checked against the whole diff, not just the delta — only when: the fix changed the design rather than staying confined to the reported issue, the delta is broad enough that a retired axis's earlier clean result no longer covers it, or a light round's reviewer flags something outside its scoped delta (the narrowing was wrong; don't trust it, widen instead).
 
-Set `next_round_recommendation` to that live axis list (not a bare `light`/`full` label), so the next round's dispatch is unambiguous about what runs. Say which rounds were light and which axes ran, both in the report and the rolling comment — "three rounds" and "one full round and two light ones, narrowed to correctness and simplification" are different claims about how hard the work was looked at.
+Set `next_round_recommendation` to that live axis list (not a bare `light`/`full` label), so the next round's dispatch is unambiguous about what runs. Say which rounds were light and which axes ran in `round_summary` — "three rounds" and "one full round and two light ones, narrowed to correctness and simplification" are different claims about how hard the work was looked at.
 
 ## Guards
 
@@ -127,7 +123,7 @@ Read the code and run it against inputs it has never seen before concluding anyt
 
 Stop that round's subagent now that its report is read; before dispatching the next round, list live agents and stop any left over from a completed one — a round left running can misread a sibling's later commit as a rogue session when it simply started before that round existed.
 
-If `axes_unreported` is non-empty, the round has not completed: re-dispatch the missing axis or accept the record before moving on. If `flags` is non-empty, stop and ask the human before dispatching anything further. Otherwise: if `decision == stop`, or the round just run hit the cap, exit the loop and record why; otherwise dispatch the next round with `light_or_full` set to `next_round_recommendation`.
+If `axes_unreported` is non-empty, the round has not completed: re-dispatch the missing axis or accept the record before moving on. If `flags` is non-empty, stop and ask the human before dispatching anything further. Otherwise: if `decision == stop`, or the round just run hit the cap, exit the loop and record why; otherwise dispatch the next round scoped to `next_round_recommendation`'s axis list, passed forward as the next round's `seed_axes`.
 
 **Hitting the cap never means shipping a known defect.** Under `fix_mode: fix-inline`, fix that round's must-fix findings even though the loop is stopping, and say plainly in the report that those fixes were not independently re-reviewed. Under `fix_mode: report-only`, hand the unresolved must-fix findings back to the caller exactly as found — there is nothing here for this skill to fix.
 
@@ -149,3 +145,13 @@ If `axes_unreported` is non-empty, the round has not completed: re-dispatch the 
 | Under `report-only`, dispatching another round with nothing changed | Nothing will differ from the last round's findings; a round only earns its cost after a real edit landed. |
 | Dispatching the next round without stopping a completed round's leftover subagent | It outlives its own view of the branch and can misdiagnose a later round's commit as a rogue session. |
 | Calling a round's findings converging when they live entirely in invented scaffolding | It's reviewing its own harness, not the diff. Exit regardless of the cap. |
+
+## Red flags
+
+- About to add a review axis in a later round — it belonged in round 1
+- About to narrow later rounds in a way that drops the security axis
+- About to dispatch the next round without stopping a completed round's leftover subagent
+- About to write a probe command that could block on stdin instead of using a heredoc
+- About to call a round's findings converging when they live entirely in invented scaffolding
+- About to begin the next round with a reviewer still outstanding from this one
+- About to trigger a repo's manual-only automated reviewer directly instead of naming it in the report
