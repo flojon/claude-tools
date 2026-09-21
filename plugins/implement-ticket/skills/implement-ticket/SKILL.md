@@ -11,7 +11,7 @@ Take a ticket from its tracker to a draft PR, with fresh-context subagents doing
 
 **Flags:** `--spec` / `--no-spec` force the size gate either way. `--max-rounds N` raises the review cap from 3 to at most 5.
 
-**REQUIRED SUB-SKILLS:** superpowers:requesting-code-review (dispatching reviewers), superpowers:receiving-code-review (triaging what they return), superpowers:test-driven-development (implementation), superpowers:verification-before-completion (before any green claim).
+**REQUIRED SUB-SKILLS:** pr-review-loop (running the review rounds in Phase 5b), superpowers:requesting-code-review (dispatching reviewers), superpowers:receiving-code-review (triaging what they return), superpowers:test-driven-development (implementation), superpowers:verification-before-completion (before any green claim).
 
 ## Orchestration model
 
@@ -276,11 +276,18 @@ If this PR is **stacked** on another branch rather than the default one, `--base
 
 - `pr_number`, `pr_url`
 - `build_status`: green (this subagent does not hand off until it is)
-- `axes_earned`: which review axes this diff's neighbourhood earns, from the table in 5b — seeds round 1
+- `axes_earned`: which review axes this diff's neighbourhood earns, per pr-review-loop's axis table — seeds round 1
 
 ### 5b — The review loop
 
-**Runs as:** you drive the loop; each round is its own subagent dispatch. Cap at **3 rounds** (`--max-rounds 5` to extend).
+**Runs as:** you drive the loop; each round is its own subagent dispatch, and the mechanics of a round belong to **REQUIRED SUB-SKILL pr-review-loop** — its axis table, its dispatch protocol, its round report contract, and its guards (thrash, whack-a-mole, diverging, self-referential, out-of-scope-finding, unexpected-commit). What is specific to this skill is only: the cap, `fast_path`, and the fact that findings get fixed inline.
+
+Drive pr-review-loop with:
+
+- `context` = the ticket text and acceptance checklist; `notes_path`, `pr_number` as already held
+- `fix_mode: fix-inline` — a round subagent fixes must-fix and agreed worth-fixing findings itself before deciding whether to continue, exactly as Phase 5a's implementation was built
+- `seed_axes` = Phase 5a's `axes_earned` for round 1; each later round's `next_round_recommendation` after that
+- `cap`: **3 rounds** (`--max-rounds 5` to extend)
 
 **A `fast_path: true` ticket caps at 1 round, not 3.** Round 1 runs with whatever axes the earning table gives it — usually just `correctness` — and if it decides `stop`, the loop exits there; no second round is dispatched by default.
 
@@ -304,126 +311,11 @@ digraph loop {
 }
 ```
 
-**Dispatched as:** one subagent per round, given `worktree_path`, `notes_path`, `pr_number`, the round number, and the axis list to run (`axes_earned` for round 1; the previous round's `next_round_recommendation` after that — see "Round 2 onward is light by default" below).
+**Dispatched as:** one subagent per round, given `worktree_path`, `notes_path`, `pr_number`, the round number, and the axis list to run — pr-review-loop's "Running one round" describes what that subagent does with them, including how it builds once, dispatches reviewers, collects inbound comments, triages, fixes, and updates the rolling PR comment.
 
-**A round subagent's first step is reconstructing round history from disk, not memory.** Read the notes file and the rolling PR comment before anything else — that is the only record of what earlier rounds found, fixed, and rejected, and it is what makes thrash (a round reversing an earlier one) and whack-a-mole (the same defect class recurring) detectable without seeing prior transcripts.
-
-Each round:
-
-1. **Build and test first, once, and hand reviewers the result.** A red diff never goes to reviewers — and a green one does not need proving again by each of them. Put the command run and its output in the notes file every reviewer receives, and tell them the suite is green as of this commit.
-
-   **Reviewers must not re-run the full suite.** N reviewers each running a nine-leg matrix is N-1 redundant runs of a result already in hand, and on a loaded machine it is what makes timing-sensitive tests flake and builds crawl. What reviewers *should* run is small and targeted: a throwaway probe that proves one finding, or a filtered run of the tests their finding touches. Executing code to prove a claim is the point; re-establishing a fact the loop already established is waste.
-
-   **Write any probe file with a heredoc or the Write tool, never a bare redirect that can block on stdin.** A probe that does not terminate on its own hangs the round with nothing to show for it; wrap anything that might not exit under a timeout.
-2. **Dispatch fresh reviewers in parallel** per superpowers:requesting-code-review — each gets the ticket text, the acceptance checklist, the notes path and the diff range, never any session history. Round 1 earns from up to six axes; round 2 onward runs only the axes still live (see "Round 2 onward is light by default"):
-   - **security** — attack vectors, injection (command, SQL, path, template), unvalidated input reaching a shell, a filesystem path, a URL or a deserializer, secrets in logs or errors, credentials sent somewhere they were not scoped for, remote code execution, escalation through a config value the attacker controls. Use the `security-review` skill if one is installed. This axis runs in **round 1** and is never dropped when narrowing later rounds — a design that is unsafe is cheapest to fix before anything is built on it.
-   - correctness bugs, including swallowed errors, silent fallbacks, and missing error logging
-   - conformance to the acceptance criteria
-   - simplification and reuse
-   - **type design** — encapsulation, invariant expression and enforcement, and whether a new type earns its own existence. Earned only when Phase 3's **New public API surface** predicate already fired for this ticket — it never fires on its own, so it does not add cost to ordinary tickets.
-   - **use the output** — for any change a human reads (an error message, CLI output, a doc, an API exception), one reviewer builds the real output on a concrete example and *follows its advice literally*, reporting what happens.
-
-   Introducing an axis late resets the loop: rounds that should be converging start finding worse defects than the rounds before them. That is a scheduling mistake, not a discovery.
-
-   **Choose round 1's axes by what the change touches, not by the length of this list.** Five reviewers against a one-function fix spends as much as five against a credential path, and buys far less. Cost should track what a defect would cost, which is about the code's neighbourhood rather than the diff's size — a twenty-line change to a confinement check earns the security axis; a four-hundred-line refactor of pure formatting does not.
-
-   | Axis | Earn it with |
-   |---|---|
-   | security | untrusted or configured input reaching a shell, a path, a URL, a query or a deserializer; credentials; a subprocess; a network call; a sandbox or confinement rule |
-   | correctness | always — this is the floor (including swallowed errors, silent fallbacks, and missing error logging) |
-   | conformance | a ticket with several criteria, a staged ticket, or one whose body the comments have rewritten |
-   | simplification | a diff large enough to have structure worth questioning, or one that touched code it did not need to |
-   | type design | Phase 3's **New public API surface** predicate already fired for this ticket — never on its own |
-   | use the output | a change to anything a human reads: an error message, CLI output, a doc, a public exception |
-
-   One axis and one reviewer is a legitimate round 1 for a small change in a quiet corner. Say in the report which axes ran and which were not earned, so nobody reads a narrow review as a broad one.
-
-   **Between rounds, narrow — this is the default, not an option.** The rolling PR comment already carries what the previous round cleared and what it rejected, so reviewers spend their pass on the delta and on the axes still live, per "Round 2 onward is light by default" below. This raises signal and lowers cost.
-
-   **A reviewer that stops producing output has stopped, whatever its status says.** Before triaging, stat every reviewer's output file. Any reviewer whose output has not grown in 10 minutes while its siblings have finished is treated as stopped, whatever its status says — rounds take minutes, not hours. Stop it, then either re-dispatch that axis once or record it in `axes_unreported`. Never let a round wait on one, never read its silence as a clean pass on its axis, and never begin the next round with a reviewer still outstanding.
-
-   **Diagnose before blaming the agent.** Several reviewers stopping within seconds of each other is one external event, not several coincidences — an exhausted rate limit, a dropped network, a machine that slept. Check for the shared cause (uptime, load, the other agents' timestamps) before concluding anything about the work, because "the reviewer hung" and "the whole session lost its API" call for different responses, and only one of them is worth re-dispatching into immediately.
-
-   **Watch the load, too.** Reviewers run builds and test suites. Enough of them at once, or alongside other jobs on the same machine, turns a 12-second build into a 12-minute one and makes timing-sensitive tests flake in code the change never touched. A flake under load is not a finding; confirm it by running that test alone before believing it.
-3. **Collect the inbound comments too.** Findings do not only come from the reviewers just dispatched. Before triaging, read what has arrived since the last round on **both** the PR and the issue — automated reviewers, and humans:
-
-   ```bash
-   gh pr view "$PR" --json comments,reviews
-   gh issue view <n> --json comments
-   ```
-
-   These go through the same triage as everything else. A bot is a reviewer that is confidently wrong at a higher rate, not a lower one.
-
-   An automated reviewer may report nothing for reasons that have nothing to do with the code — a draft PR, a plan tier that does not review automatically, a rate limit, or a review that must be triggered by hand. **A passing bot check is not an approval and not a review seat.** Never block a round waiting for one, and never count its silence as a clean pass; note that it did not report and move on. If the repo has a reviewer that only runs on a manual trigger, say so in the report so the human can fire it — do not trigger it directly, since that spends someone else's quota.
-4. **Triage every finding** as must-fix / worth-fixing / noise, per superpowers:receiving-code-review. Verify each claim against the code before accepting it. A wrong finding earns a written rebuttal, not a compliant edit.
-5. **Fix** must-fix and agreed worth-fixing. Log rejections and their reasons in the notes file — they go in the PR body.
-6. **Evaluate whether another round is worth it.** Record the decision either way, as `decision` / `decision_reason`.
-7. **Update the rolling comment on the PR** — one comment, edited in place, never a new comment per round. It carries the cumulative history: for each round, the axes dispatched, reported and left unreported (with why), what was found, what was fixed, and what was rejected with the reason. A reader arriving at any moment sees the whole story in one place.
-
-```bash
-gh pr comment "$PR" --edit-last --create-if-none --body-file "$ROUND_SUMMARY"
-```
-
-**The rolling comment belongs on the pull request, on the code host — not on the ticket**, even when the tracker is somewhere else entirely. Review rounds are about the diff, and they are only useful beside it; a Jira ticket carrying five rounds of code-review detail is noise to everyone reading the board. The ticket gets the stage record at the end (Phase 6), not the round-by-round.
-
-If no PR exists yet (the run was told not to open one), post the same rolling comment on the ticket instead — `gh issue comment <n> --edit-last --create-if-none` on GitHub, or the equivalent update-in-place call on whatever tracker this is. Editing one comment matters more than where it lives: a round per comment buries the ticket.
-
-### Round 2 onward is light by default
-
-Full six-axis fan-out is a round-1 cost, spent because nothing is known yet about which axes this diff earns. Once round 1 has reported, that's no longer true, and **every round after it narrows to the delta and to the axes still live, by default** — going back to a full fan-out is the exception that needs a reason, not the default that needs an excuse to leave.
-
-**Carry axes forward per-axis, not as one round-wide light/full flag:**
-
-- an axis that produced a must-fix or worth-fixing finding last round **stays live** — the fix needs checking, and the axis clearly has purchase on this code
-- an axis that reported clean last round **retires** for the next round unless the delta plausibly re-triggers it (a fix that added a subprocess call re-earns security even if security was clean before; a fix that only renamed a variable does not re-earn conformance)
-- **security never retires once earned** — carry it into every remaining round regardless of what it found, per the round-1 rule above
-- an axis not earned in round 1 can still be earned mid-loop if a fix's delta newly qualifies it (table in step 2) — earning is about the code touched, not the round number
-
-Dispatch fresh reviewers only for the axes still live under these rules, scoped to the delta plus enough surrounding context to judge it. Set `next_round_recommendation` to that axis list (not a bare `light`/`full` label), so the next round's dispatch is unambiguous about what runs.
-
-**Widen back to a full round** — all axes not yet earned re-checked against the whole diff, not just the delta — only when one of these holds: the fix changed the design rather than staying confined to the reported issue, the delta is broad enough that a retired axis's earlier clean result no longer covers it, or a light round's reviewer flags something outside its scoped delta (the narrowing was wrong; don't trust it, widen instead).
-
-**Say which rounds were light and which axes ran** in the report and the rolling comment. "Three rounds" and "one full round and two light ones, narrowed to correctness and simplification" are different claims about how hard the work was looked at, and the reader is entitled to the second.
-
-**Hitting the cap never means shipping a known defect.** Fix that round's must-fix findings, then stop looping, and say plainly in the report and the PR body that those fixes were not independently re-reviewed. Offer `--max-rounds 5` and one more round on the delta as the cheap way to close it.
-
-**Whack-a-mole guard: the same defect twice is a design finding, not two bugs.** When successive rounds keep finding the same *class* of problem in new instances — another input the parser mishandles, another shape the check misses, another case the pattern does not cover — stop fixing instances. The loop cannot converge on an input space larger than the recogniser, and each round will keep earning its cost while never finishing.
-
-Set `flags` to include `whack-a-mole` instead: name the class, say why patching it does not terminate, and put the design question to the human through the orchestrator. Two questions usually decide it — does the thing **fail closed** when it does not understand its input, and does it need to handle that input at all? A check that hides what it cannot parse converges; one that reveals it does not.
-
-This is not the thrash guard: nothing is being reversed, and every round is finding something real. That is what makes it hard to see from inside the loop, and why it is worth naming here.
-
-**Test it before believing it, because the pattern has a convincing false positive.** A list of commit subjects that each name a new input case reads identically whether the work is diverging or converging. What tells them apart is not the count but the shape:
-
-| Converging | Diverging |
-|---|---|
-| The fixes are edge cases of **one grammar** — quoting, separators, empty values | Each fix is **one more dialect**, and the next dialect needs its own code |
-| Unhandled input **elides, refuses, or fails safe** | Unhandled input **passes through** |
-| The residues are **written down and bounded** | Nobody can say what is still uncovered |
-
-Read the code and run it against inputs it has never seen before concluding anything. Diagnosing this from commit subjects alone gets it wrong, and telling someone their design cannot converge when it demonstrably does is an expensive kind of wrong. Set `flags` to include `diverging` if the shape says so.
-
-**Thrash guard:** if a round reverses a change an earlier round made, stop — set `flags` to include `thrash` and report the disagreement and the reasoning instead of oscillating between two reviewers' preferences.
-
-**A round cannot see its siblings.** A commit on the branch it did not make and does not recognize is evidence of another round or a human push, not proof of a rogue session — set `flags` to include `unexpected-commit` and let the orchestrator adjudicate rather than concluding anything about who made it.
-
-**Self-review guard:** the cap bounds cost, not convergence. If a round's must-fix findings land entirely in scaffolding, harnesses, or documentation the implementation itself invented — never in the production change — the loop is reviewing its own artefacts, not the ticket. Set `flags` to include `self-referential` and exit regardless of the cap.
+**You are pr-review-loop's "caller"** for the purposes of its control-loop section: after each round's report, stop that round's subagent now that its report is read, list live agents and stop any left over from a completed one, and follow pr-review-loop's rules (`axes_unreported` non-empty → re-dispatch the missing axis or accept the record; `flags` non-empty → stop and ask the human before dispatching anything further; `decision: stop` or the cap hit → exit the loop and record why; otherwise dispatch the next round with `light_or_full` set to `next_round_recommendation`).
 
 **Findings outside the ticket's scope** get reported to the human through the orchestrator (`flags` includes `out-of-scope-finding`, with the finding named), not built and not filed. Filing an issue is a remote write nobody asked for.
-
-**Returns to the orchestrator:**
-
-- `round`, `light_or_full`
-- `axes_dispatched`: every axis this round attempted
-- `axes_reported`: axes that returned a real result
-- `axes_unreported`: `[{axis, reason}]` for any dispatched axis that did not — `axes_dispatched` must equal `axes_reported ∪ axes_unreported`, and this round cannot return `decision: stop` while it is non-empty
-- `must_fix`: [{summary, axis, fixed}]
-- `rejected`: [{summary, reason}]
-- `decision`: continue | stop, with `decision_reason`
-- `next_round_recommendation`: full | light — only meaningful when `decision` is continue
-- `flags`: [] or any of `thrash`, `whack-a-mole`, `diverging`, `out-of-scope-finding`, `unexpected-commit`, `self-referential` — non-empty means stop and ask the human, cap or no cap
-
-**You, after each round's report:** stop that round's subagent now that its report is read; before dispatching the next round, list live agents and stop any left over from a completed one — a round left running can misread a sibling's later commit as a rogue session when it simply started before that round existed. If `axes_unreported` is non-empty, the round has not completed: re-dispatch the missing axis or accept the record before moving on. If `flags` is non-empty, stop and ask before dispatching anything further. Otherwise, if `decision == stop` or the round just run hit the cap, exit the loop and record why. Otherwise, dispatch the next round with `light_or_full` set to `next_round_recommendation`.
 
 ## Phase 6 — Land
 
@@ -492,6 +384,8 @@ Never delete a branch holding work that exists nowhere else. Removing a worktree
 
 ## Common mistakes
 
+Round-loop mechanics — axis selection, reviewer stalls, thrash, whack-a-mole, diverging, self-referential findings — are pr-review-loop's own Common mistakes and Red flags. What follows is specific to taking a ticket through this skill.
+
 | Mistake | Why it bites |
 |---|---|
 | Doing a phase's work in your own context instead of dispatching it | Defeats the entire point of the split — your context grows exactly as if there were no subagents. |
@@ -511,27 +405,15 @@ Never delete a branch holding work that exists nowhere else. Removing a worktree
 | Assuming the tracker is GitHub | A Jira shop on GitHub needs one tool for the ticket and another for the PR. Establish which before Phase 1's searches. |
 | Believing an empty `gh` response | Exit 0 with no body means the call failed, not that the ticket is empty. |
 | Calling it done with CI unchecked | Reviewers approved the diff, not the build. The legs skipped locally run there. |
-| Treating a bot comment as authoritative | It is a reviewer with a higher false-positive rate. Verify it like any other finding. |
-| Waiting on a reviewer that has gone quiet | Ten minutes with a static output file while its siblings finished means it stopped; stop it and record the axis in `axes_unreported`, whatever its status says. |
-| Calling a test failure a finding without re-running it alone | Under heavy parallel load, timing-sensitive tests fail in code the change never touched. Confirm in isolation first. |
-| Every reviewer re-running the full suite | The loop already ran it and can hand them the output. Reviewers run targeted probes, not the matrix. |
-| A full fan-out against a one-function fix | Re-confirms axes that went quiet about code that has not changed. Run a light round instead. |
-| Running every axis because the list has six | Axes are earned by what the change touches. An unearned axis costs a reviewer and returns nits. |
-| Reading "small diff" as "low risk" | A twenty-line change to a confinement check or a credential path is small and dangerous. Judge the neighbourhood, not the line count. |
 | Only checking for prior work on *this* ticket | Parallel tickets collide through files. Check what every open PR is editing before scoping. |
 | Fixing a shared-code finding in both PRs at once | It lands twice and conflicts. Fix it where that code belongs and note it in the other. |
-| Patching the next instance of a defect already patched twice | The class is the finding. Ask whether it fails closed, and whether it needs to handle that input at all. |
 | Writing a spec that names no decision | A spec settles what to build. If that is already known, it buys three review passes and answers nothing. |
 | Reviewing a document with the full capped loop | The cap exists because fixing code can break code. Editing a paragraph cannot. One round. |
 | Trusting a wrapper's success line | A `git`/`gh` wrapper can print its canned "ok" for a command that did nothing — including a remote write. Read the result back before believing it happened. |
 | Stopping because a reviewer said "ready to merge" | That is one opinion, not the exit condition. Exit on a round that earns nothing. |
 | Looping until reviewers fall silent | Subjective nits never run out. The cap keeps cost bounded. |
-| Implementing a finding that hasn't been verified | Reviewers are confidently wrong at a steady rate. Check first. |
 | Leaving a `/loop` wakeup scheduled after reporting the final state | It fires later as a stale resume that just repeats the finished report. Call `ScheduleWakeup({stop: true})` once Phase 6 (or any other final report) is composed. |
 | Passing Phase 6 a remembered commit SHA to reset to | It has no way to tell a stale SHA from a current one and will discard a later round's real work to match it. It reads the tip itself. |
-| Leaving a round's subagent running after its report is read | It outlives its own view of the branch and can misdiagnose a later round's commit as a rogue session. |
-| Writing a probe with a bare `cat >` or similar stdin redirect | Blocks forever with nothing written and no error — use a heredoc or the Write tool instead. |
-| Calling the loop converged when every must-fix finding is in scaffolding the implementation invented | It's reviewing its own harness, not the ticket. Exit regardless of the cap. |
 | Marking a multi-file or ambiguous ticket `fast_path` to save review cost | The tier is for single-file mechanical changes only — misapplied, it caps review at 1 round on work that needed the full loop. |
 | Keeping `fast_path` set after round 1 found a must-fix | The bet was wrong; the ticket reverts to the standard cap, not a second fast round. |
 | Trusting the Recon cache without re-hashing its source files | A CI workflow or CLAUDE.md can change between tickets; an unhashed cache hit is a stale verify-legs list masquerading as a fresh one. |
@@ -548,17 +430,12 @@ Never delete a branch holding work that exists nowhere else. Removing a worktree
 - About to start work without moving the ticket to In Progress and claiming it
 - About to work a ticket that someone else is assigned to without asking first
 - About to change a ticket's sprint, team, or estimate rather than reporting it
-- About to add a review axis in a late round — it belonged in round 1
-- About to narrow later rounds in a way that drops the security axis
 - About to report success while a check is red or still running
 - About to mark a PR ready for review with a known must-fix finding, a red check, or an open question
 - About to leave a worktree behind without saying so
 - About to open a second PR for the *same* stage a PR already covers (stacking a new stage on it is correct)
 - About to build something a comment says was split into another issue
 - About to tell Phase 6 what the branch tip should be instead of letting it read the branch
-- About to dispatch the next round without stopping a completed round's leftover subagent
-- About to write a probe command that could block on stdin instead of using a heredoc
-- About to call a round's findings converging when they live entirely in invented scaffolding
 - About to tag a ticket `fast_path` because it seems small, not because it meets every requirement in the table
 - About to read the Recon cache without checking its source-file hashes still match
 - About to skip confirming `gh auth status` or creating a fresh worktree because the Recon cache hit
