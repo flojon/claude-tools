@@ -92,7 +92,7 @@ Follow pr-review-loop's "caller's control loop" section as written; when it exit
 
 Once the loop exits, you hold the final round's `must_fix`, `rejected`, `round_summary`, and the cumulative round history pr-review-loop wrote to `notes_path`.
 
-1. **Summarize for the human:** what ran (axes, rounds), what's still outstanding (`must_fix` unresolved), what was rejected and why.
+1. **Summarize for the human:** what ran (axes, rounds), what's still outstanding (`must_fix` unresolved), what was rejected and why. Write this summary to `SUMMARY="$(git rev-parse --absolute-git-dir)/pr-review-summary-<n>.md"` — the `$SUMMARY` the posting commands below read from.
 2. **Offer to post it**, asking which of:
    - **comment only** — `gh pr review <n> --comment --body-file "$SUMMARY"`
    - **approve** — offer this only when `must_fix` is empty; `gh pr review <n> --approve --body-file "$SUMMARY"`
