@@ -141,7 +141,7 @@ Do this before touching code, so a missing prerequisite fails in seconds rather 
 2. **Check the repo-level Recon cache before rediscovering anything.** Verify legs and the release-note convention almost never change between tickets on the same repo, so this is shared across every worktree — unlike the notes file in step 6, which is per-ticket:
 
    ```bash
-   CACHE="$(git rev-parse --path-format=absolute --git-common-dir)/implement-ticket-recon-cache.md"
+   CACHE="$(git rev-parse --path-format=absolute --git-common-dir)/repo-recon-cache.md"
    ```
 
    The cache is valid only when **all** hold:

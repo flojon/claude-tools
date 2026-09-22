@@ -43,7 +43,7 @@ Run fresh-context reviewer subagents against a diff, round after round, until a 
 | conformance | a ticket/PR with several criteria, a staged ticket, or one whose body the comments have rewritten |
 | simplification | a diff large enough to have structure worth questioning, or one that touched code it did not need to |
 | type design | encapsulation, invariant expression and enforcement, and whether a new type earns its own existence — earned only by the **new public API surface** predicate: anything a consumer outside this repo can call, or that an export/codegen surface publishes; it never fires on its own. A caller may narrow this predicate for its own domain, but state the narrowing rather than restating the predicate itself |
-| use the output | a change to anything a human reads: an error message, CLI output, a doc, a public exception — one reviewer builds the real output on a concrete example and follows its advice literally |
+| use the output | a change to anything a human reads: an error message, CLI output, a doc, a public exception — one reviewer builds the real output on a concrete example (a real invocation or run producing it, reusing step 1's build where that already produces it, not a hypothetical) and follows its advice literally |
 
 Round 1 (or the first round this loop runs for a given diff) earns from all six; **security never retires** once earned. Choose by what the change touches, not by the length of this list — five reviewers against a one-function fix spends as much as five against a credential path and buys far less. One axis and one reviewer is a legitimate round 1 for a small change in a quiet corner; say in the report which axes ran and which were not earned, so nobody reads a narrow review as a broad one.
 
@@ -57,7 +57,7 @@ A round subagent's first step is reconstructing round history from disk, not mem
 
    Write any probe file with a heredoc or the Write tool, never a bare redirect that can block on stdin — one that does not terminate hangs the round with nothing to show for it.
 
-2. **Dispatch fresh reviewers in parallel**, per superpowers:requesting-code-review — each gets `context`, `notes_path` and `diff_range`, never any session history.
+2. **Dispatch fresh reviewers in parallel**, per superpowers:requesting-code-review — each gets `context`, `notes_path`, `diff_range`, and its own `axis` name plus that axis's row (name and earn-condition text) from "Which axes a change earns" above, never any session history — a fresh-context reviewer has no other way to know which of the six lenses it is holding.
 
    **A reviewer that stops producing output has stopped, whatever its status says.** Stat every reviewer's output file before triaging. Ten minutes with a static output file while its siblings finished means it stopped, whatever its status says — rounds take minutes, not hours. Stop it, then either re-dispatch that axis once or record it in `axes_unreported`; never begin the next round with one still outstanding, and never read its silence as a clean pass.
 

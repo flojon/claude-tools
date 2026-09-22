@@ -9,7 +9,7 @@ Take an existing pull request through the same fresh-context review loop impleme
 
 **Core principle:** same as pr-review-loop's — you do not stop because you are satisfied, you stop when a round earns nothing. But this skill never edits someone else's branch on its own initiative, and it never submits a review without being told to: fixing and posting are always offered, never assumed.
 
-**Flags:** `--rounds N` (default 1; raise it to keep looping even without an intervening fix — useful when the PR keeps getting pushed to while you watch it). `--no-fix` skips the fix offer even on the human's own PR.
+**Flags:** `--rounds N` (default 1; raise it to keep looping even without an intervening fix — useful when the PR keeps getting pushed to while you watch it). It is meant to be paired with something re-invoking this skill on an interval, such as the `loop` skill, rather than run alone: Phase 2's own change-detection already skips a round when nothing has moved since the last one, so `--rounds N` by itself just burns the cap sitting idle in one dispatch. `--no-fix` skips the fix offer even on the human's own PR.
 
 **REQUIRED SUB-SKILLS:** pr-review-loop (running the review), superpowers:requesting-code-review, superpowers:receiving-code-review, superpowers:test-driven-development (only if the fix offer is accepted), superpowers:verification-before-completion (before any green claim).
 
@@ -41,17 +41,18 @@ You are the **orchestrator**: dispatch one fresh subagent per phase (Agent tool,
 
 3. **Pull context.** If the PR body references a ticket or issue, fetch its text too — the same acceptance-criteria reading implement-ticket's Phase 1 does, but **read-only**: this skill never claims a ticket or moves its status. Without a linked ticket, the PR title and body are the only statement of what "right" looks like, and that is what reviewers get as `context`.
 
-4. **Get a checkout to build from.** Reuse a local worktree if one already exists for this branch (`git worktree list`); otherwise create one the same collision-proof way implement-ticket's Phase 2 does, built from the PR's actual head, never a stale local copy:
+4. **Get a checkout to build from.** Reuse a local worktree if one already exists for this branch (`git worktree list`); otherwise create one the same collision-proof way implement-ticket's Phase 2 does — a random suffix, not a bare slug, so concurrent runs never collide — built from the PR's actual head, never a stale local copy:
 
    ```bash
-   git fetch origin "pull/<n>/head:<slug>"
-   git worktree add ".claude/worktrees/<slug>" "<slug>"
+   SLUG=pr<n>-$(od -An -N2 -tx1 /dev/urandom | tr -d ' ')
+   git fetch origin "pull/<n>/head:$SLUG"
+   git worktree add ".claude/worktrees/$SLUG" "$SLUG"
    ```
 
 5. **Reuse the repo-level verify-leg cache**, keyed exactly as implement-ticket's Phase 2 keys it, so a review benefits from a discovery an implement-ticket run already made on this repo, and vice versa:
 
    ```bash
-   CACHE="$(git rev-parse --path-format=absolute --git-common-dir)/implement-ticket-recon-cache.md"
+   CACHE="$(git rev-parse --path-format=absolute --git-common-dir)/repo-recon-cache.md"
    ```
 
    Valid under the same rule as implement-ticket's Phase 2 — all of: it exists; every source file it names still exists and hashes the same as recorded; nothing that outranks those sources in the discovery order below exists now but didn't at cache time. Invalid or absent, rediscover — CI config first, then CLAUDE.md/AGENTS.md/CONTRIBUTING, then README, then project files — and write it back.
