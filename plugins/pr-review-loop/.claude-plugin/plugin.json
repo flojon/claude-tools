@@ -2,7 +2,7 @@
   "name": "pr-review-loop",
   "displayName": "pr-review-loop",
   "description": "Shared fresh-context review loop — axis selection, round dispatch, and convergence guards — for skills that review a diff or pull request.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": {
     "name": "Jonas Flodén"
   },

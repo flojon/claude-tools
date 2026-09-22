@@ -2,7 +2,7 @@
   "name": "review-pr",
   "displayName": "review-pr",
   "description": "Review an existing pull request with fresh-context reviewers, then offer to post it, approve or request changes, and — on your own PR — fix it.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": {
     "name": "Jonas Flodén"
   },
