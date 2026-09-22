@@ -20,7 +20,7 @@ Run fresh-context reviewer subagents against a diff, round after round, until a 
 | `notes_path` | where round history and verify-leg output live, so reviewers and later rounds can read it without session history |
 | `verify_legs` | the build/test commands, and which are cheap vs. expensive |
 | `cap` | round limit — the caller decides its own default and its own override flag |
-| `fix_mode` | `fix-inline` — the round subagent fixes must-fix/worth-fixing findings itself before deciding whether to continue — or `report-only` — it triages and reports but never edits the branch; fixing, if any, happens outside this loop, and a fresh round only earns its cost after that edit lands |
+| `fix_mode` | `fix-inline` — the round subagent fixes must-fix/worth-fixing findings itself before deciding whether to continue — or `report-only` — it triages and reports but never edits the branch; fixing, if any, happens outside this loop, and a fresh round only earns its cost after that edit lands. Both modes return `round_summary` to the caller; this loop never posts it anywhere itself |
 | `seed_axes` | axes already known to be earned (a size gate, or a prior round's `next_round_recommendation`) — omit to compute round 1 from the table below |
 
 ## Returns to the caller, every round

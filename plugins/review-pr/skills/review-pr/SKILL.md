@@ -73,7 +73,7 @@ You are the **orchestrator**: dispatch one fresh subagent per phase (Agent tool,
 
 ## Phase 2 — Review loop
 
-**Runs as:** you drive it, per **REQUIRED SUB-SKILL pr-review-loop**, with:
+**Runs as:** you drive it, per **REQUIRED SUB-SKILL pr-review-loop**; each round is its own fresh subagent dispatch, with:
 
 - `fix_mode: report-only` — a round subagent never edits the branch; findings come back untouched, for the human to act on in Phase 3
 - `verify_legs` — pass through Phase 1's value; there is no implement-ticket-style size gate here, so `seed_axes` is left unset and pr-review-loop computes round 1 fresh from its own axis table (including its default type-design predicate) against the whole diff

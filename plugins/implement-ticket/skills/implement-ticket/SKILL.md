@@ -195,7 +195,7 @@ Escalate if **any** predicate fires:
 | Predicate | Reading |
 |---|---|
 | Multiple independent deliverables | Separately shippable pieces, not bullet count. A one-line fix written as three bullets does not fire this. |
-| New public API surface | Anything a consumer outside this repo can call, or that an export/codegen surface publishes. |
+| New public API surface | Anything a consumer outside this repo can call, or that an export/codegen surface publishes. Same predicate pr-review-loop's axis table uses to earn type design — stated twice on purpose; keep both in sync if either changes. |
 | More than one module touched | Module = a packaged or deployable unit. `src` plus its own `test` project is **one** module. |
 | Config or data format change | A field is **added, removed, renamed, moved, or reshaped** (scalar becomes block, one value becomes a list), or a wire contract changes. **Not** a validation change: refusing a value that used to be accepted, or accepting one that used to be refused, leaves the format exactly as it was and is ordinary bounded work. |
 | The ticket asks for a decision | It investigates, weighs options, or leaves the design open — in the title *or* the body. |
