@@ -2,7 +2,7 @@
   "name": "ks",
   "displayName": "ks",
   "description": "Take a ticket from its tracker to a draft PR, or review an existing one, with fresh-context reviewers as the quality gate.",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "author": {
     "name": "Jonas Flodén"
   },
