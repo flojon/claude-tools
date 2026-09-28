@@ -7,18 +7,8 @@
   "plugins": [
     {
       "name": "ks",
-      "source": "./plugins/implement-ticket",
-      "description": "Take a ticket from its tracker to a draft PR, with fresh-context reviewers as the quality gate."
-    },
-    {
-      "name": "pr-review-loop",
-      "source": "./plugins/pr-review-loop",
-      "description": "Shared fresh-context review loop — axis selection, round dispatch, and convergence guards — for skills that review a diff or pull request."
-    },
-    {
-      "name": "review-pr",
-      "source": "./plugins/review-pr",
-      "description": "Review an existing pull request with fresh-context reviewers, then offer to post it, approve or request changes, and — on your own PR — fix it."
+      "source": "./plugins/ks",
+      "description": "Take a ticket from its tracker to a draft PR, or review an existing one, with fresh-context reviewers as the quality gate."
     }
   ]
 }

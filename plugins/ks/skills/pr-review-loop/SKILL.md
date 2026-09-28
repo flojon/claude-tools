@@ -1,6 +1,7 @@
 ---
 name: pr-review-loop
 description: Use when a skill needs to run a capped, multi-round, fresh-context review against a diff or pull request and must decide which axes it earns, whether another round is worth dispatching, and when a guard like thrash, whack-a-mole, or diverging fires. A required sub-skill for implement-ticket and review-pr; not invoked directly from a bare human request.
+user-invocable: false
 ---
 
 # PR Review Loop
