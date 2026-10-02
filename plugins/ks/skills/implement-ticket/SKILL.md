@@ -121,15 +121,18 @@ Return each in `warnings` with what it currently says and what it probably shoul
 **Returns to the orchestrator:**
 
 - `ticket`: id, title, one-line summary
+- `ticket_summary`: a short paragraph — the problem, what the ticket asks for, and any constraints or decisions already made in comments
 - `acceptance_checklist`: the full checklist built from body + comments
 - `resume`: `none` | `{from: spec|plan|branch|pr, details}` — what was found and where to pick up
 - `siblings`: open PRs touching the same files, and what to say about them in the PR body
 - `warnings`: filed-wrong-team | wrong-sprint | no-estimate — non-blocking, reported not fixed
-- `open_questions`: product decisions the ticket can't settle — non-empty means the orchestrator stops before Phase 2
+- `open_questions`: product decisions the ticket can't settle, each with its plausible answers and how the work differs under each — non-empty means the orchestrator stops before Phase 2
 - `blocked`: `null` | `{reason: assigned-elsewhere|already-in-progress-elsewhere, holder, state}` — non-null means full stop
 - `claimed`: true | false — false only if blocked
 
 If `blocked` or `open_questions` is non-empty, stop and ask the human before dispatching Phase 2.
+
+**Before asking, show the human what they are answering about.** They often start the run without having read the ticket. Lead with the ticket id and title, `ticket_summary`, and the `acceptance_checklist`; then list every open question, numbered, each with the options and what each answer would change. Only then ask.
 
 ## Phase 2 — Recon
 
