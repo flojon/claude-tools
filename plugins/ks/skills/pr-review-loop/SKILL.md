@@ -60,9 +60,11 @@ A round subagent's first step is reconstructing round history from disk, not mem
 
 2. **Dispatch fresh reviewers in parallel**, per superpowers:requesting-code-review — each gets `context`, `notes_path`, `diff_range`, and its own `axis` name plus that axis's row (name and earn-condition text) from "Which axes a change earns" above, never any session history — a fresh-context reviewer has no other way to know which of the six lenses it is holding.
 
-   **A reviewer that stops producing output has stopped, whatever its status says.** Stat every reviewer's output file before triaging. Ten minutes with a static output file while its siblings finished means it stopped, whatever its status says — rounds take minutes, not hours. Stop it, then either re-dispatch that axis once or record it in `axes_unreported`; never begin the next round with one still outstanding, and never read its silence as a clean pass.
+   **Dispatch them in the foreground: every reviewer's Agent call in one message, each with `run_in_background: false`.** They still run concurrently, and that one step returns only once all of them have reported. Never background a reviewer and end your turn to wait for it: a subagent that goes idle without handing back is told to hand back immediately, so the round returns before any reviewer has reported.
 
-   **Diagnose before blaming the agent.** Several reviewers stopping within seconds of each other is one external event (an exhausted rate limit, a dropped network, a machine that slept), not several coincidences — check for the shared cause before concluding anything about the work.
+   **A reviewer that returns without a usable report has not reviewed anything.** Re-dispatch that axis once, or record it in `axes_unreported`; never begin the next round with an axis neither reported nor recorded, and never read its silence as a clean pass.
+
+   **Diagnose before blaming the agent.** Several reviewers failing within seconds of each other is one external event (an exhausted rate limit, a dropped network, a machine that slept), not several coincidences — check for the shared cause before concluding anything about the work.
 
    **Watch the load.** Reviewers run builds and test suites; enough of them at once, or alongside other jobs on the same machine, turns a fast build slow and makes timing-sensitive tests flake in code the change never touched. Confirm a suspected flake by running that test alone before believing it.
 
@@ -138,7 +140,8 @@ If `axes_unreported` is non-empty, the round has not completed: re-dispatch the 
 | Reading "small diff" as "low risk" | A twenty-line change to a confinement check or a credential path is small and dangerous. Judge the neighbourhood, not the line count. |
 | Introducing an axis in a late round | Rounds that should be converging start finding worse defects than the rounds before them — a scheduling mistake, not a discovery. |
 | Narrowing later rounds in a way that drops security | Security never retires once earned, regardless of what later rounds find. |
-| Trusting a stalled reviewer's silence as a clean pass | Ten minutes static while siblings finished means it stopped. Record it in `axes_unreported`, never assume clean. |
+| Trusting a reviewer's missing report as a clean pass | A reviewer that returned no findings and no verdict didn't review. Record it in `axes_unreported`, never assume clean. |
+| Backgrounding reviewers and ending the turn to wait for them | The round is made to hand back before any reviewer reports. Dispatch them in the foreground, all in one message. |
 | Calling a test failure a finding without re-running it alone | Under heavy parallel load, timing-sensitive tests fail in code the change never touched. Confirm in isolation first. |
 | Patching the next instance of a defect already patched twice | The class is the finding. Ask whether it fails closed, and whether it needs to handle that input at all. |
 | Treating a bot comment as authoritative | It is a reviewer with a higher false-positive rate. Verify it like any other finding. |
@@ -155,4 +158,5 @@ If `axes_unreported` is non-empty, the round has not completed: re-dispatch the 
 - About to write a probe command that could block on stdin instead of using a heredoc
 - About to call a round's findings converging when they live entirely in invented scaffolding
 - About to begin the next round with a reviewer still outstanding from this one
+- About to dispatch a reviewer with `run_in_background: true`, or to end the turn while one is still running
 - About to trigger a repo's manual-only automated reviewer directly instead of naming it in the report
