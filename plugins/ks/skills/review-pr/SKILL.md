@@ -1,6 +1,6 @@
 ---
 name: review-pr
-description: Use when asked to review a pull request, give a second opinion on someone else's PR before approving it, check whether a PR is ready to merge, or keep re-reviewing a PR automatically until it looks good. Triggers on a request naming a PR number or URL, or "review this PR" / "review my PR" / "is this PR ready".
+description: Use when asked to review a pull request, give a second opinion on someone else's PR before approving it, check whether a PR is ready to merge, review several PRs that ship one change across repos, or keep re-reviewing a PR automatically until it looks good. Triggers on a request naming one or more PR numbers or URLs, or "review this PR" / "review my PR" / "is this PR ready".
 ---
 
 # Review PR
@@ -17,9 +17,21 @@ Take an existing pull request through the same fresh-context review loop impleme
 
 You are the **orchestrator**: dispatch one fresh subagent per phase (Agent tool, `subagent_type: "general-purpose"`, never a fork — these subagents must not inherit your context) and act only on what it reports back. Nothing in Phase 3's posting or fixing action happens until a human has chosen it — that is the one part of this skill that runs in your own context on purpose, because it is the part that has to ask.
 
+## Several PRs that ship one change
+
+When the request names two or more PRs that land one ticket or feature together (backend + frontend, service + worker + deployment), run Phase 1 and Phase 2 for each PR as usual — each in its own repo, worktree and notes file — then, before Phase 3, dispatch one more fresh subagent with every PR's diff and `context` to check that they line up. For each concept the PRs share:
+
+- **Names** match across repos: DTO fields, routes, queue and topic names, environment variables, feature-flag keys.
+- **Contracts** agree: what the producer sends, the consumer reads; what the deployment provides, the app reads.
+- **Order:** does one have to be deployed before the other, what breaks if it isn't, and does a PR description say so?
+- **Flags and config:** declared where they're read, with a sensible default when missing; secrets referenced by exactly the consumers that need them.
+- **Scope:** together, do the PRs cover what the ticket asks — or does each assume another PR handles a part nobody does?
+
+A mismatch is a finding on the PR that has to change, or on both when either could. A match is worth one line marked ✓, so the human sees it was checked rather than skipped. Phase 3 presents per-PR findings first, then this cross-PR list, and posts to each PR separately.
+
 ## Phase 1 — Identify the PR and whether it's yours
 
-**Dispatched as:** one subagent, given whatever identifies the PR (number, URL, or "the PR on the current branch") and the repo.
+**Dispatched as:** one subagent per PR, given whatever identifies the PR (number, URL, or "the PR on the current branch") and the repo.
 
 1. **Resolve the PR:**
 
@@ -119,6 +131,7 @@ This phase ends the run once an action is taken or the human declines all of the
 | Re-running a round against a diff nothing has touched since the last one | It will just restate the same findings at the same cost. |
 | Rediscovering verify legs from scratch | implement-ticket's Recon cache already has them for this repo — read it, don't redo it. |
 | Treating a draft PR as ready for review | The author may have left it a draft specifically because it isn't ready — ask before assuming otherwise. |
+| Reviewing PRs that ship together one at a time and stopping there | Each can be correct alone while the pair is broken: a renamed field on one side only, a frontend that ships before the backend it needs. |
 | Reading pr-review-loop's `report-only` findings as already fixed | Nothing was edited. `fixed` is `false` on every one of them until Phase 3 says otherwise. |
 
 ## Red flags
