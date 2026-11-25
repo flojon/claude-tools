@@ -31,6 +31,10 @@ You are the **orchestrator**: dispatch one fresh subagent per phase (Agent tool,
 
    **A draft PR may be a draft on purpose.** Note `isDraft` and say so in the report; don't assume the author wants a review yet just because a request named the PR.
 
+   **A stacked PR is reviewed against the branch it's stacked on.** When the body or branch name says the PR builds on another one, or `files` holds changes that belong to an earlier PR, diff against that branch's tip rather than `baseRefName` — including after GitHub retargets it to the default branch once its base merges, when a squash merge leaves the base's commits in the diff. Say which base you used.
+
+   **Size it.** Over about 50 files or 3000 added lines, return `size_warning`: a silent triage of a large PR drops exactly what colleague reviews find most — test value, naming, consistency, reuse — so the human chooses between a full review and a triage before Phase 2 starts.
+
 2. **Determine ownership** — this decides, at the end, whether fixing is even on the table:
 
    ```bash
@@ -48,6 +52,8 @@ You are the **orchestrator**: dispatch one fresh subagent per phase (Agent tool,
    git fetch origin "pull/<n>/head:$SLUG"
    git worktree add ".claude/worktrees/$SLUG" "$SLUG"
    ```
+
+   Then check it still merges: `git merge-tree --write-tree origin/<base> "$SLUG"` exits non-zero on a conflict, which is a finding for the author whatever the rounds say. `mergeStateStatus` alone can lag a base that moved minutes ago.
 
 5. **Reuse the repo-level verify-leg cache**, keyed exactly as implement-ticket's Phase 2 keys it, so a review benefits from a discovery an implement-ticket run already made on this repo, and vice versa:
 
@@ -70,6 +76,9 @@ You are the **orchestrator**: dispatch one fresh subagent per phase (Agent tool,
 - `worktree_path`, `notes_path`
 - `verify_legs`
 - `context`: the ticket text if one is linked, else the PR description
+- `diff_range`: `<base>...<head>`, with the stack base when the PR is stacked
+- `merge_conflict`: true | false
+- `size_warning`: `null` | `{files, added_lines}` — non-null means ask the human for a full review or a triage before dispatching Phase 2
 - `blocked`: `null` | `{reason}` — non-null means stop and tell the human rather than dispatching Phase 2
 
 ## Phase 2 — Review loop
@@ -83,6 +92,13 @@ You are the **orchestrator**: dispatch one fresh subagent per phase (Agent tool,
 pr-review-loop never posts anywhere on its own — it hands back each round's `round_summary` and writes it to `notes_path`. That is exactly what this skill needs: nothing touches the PR until Phase 3 asks the human.
 
 A round beyond the first only earns its cost once the diff has actually changed — a new push, or a fix accepted in Phase 3. **If nothing has changed since the last round and the human asks for another anyway, say so and skip the dispatch** rather than re-running an identical review at the same cost for the same answer.
+
+**Scope a later round to what the author changed, not to what the base brought in.** Record the head each round reviewed in `notes_path`; the next round's `diff_range` is built from it. Once the branch has merged its base or been rebased, a plain diff from that SHA carries everyone else's commits too:
+
+- While the last reviewed SHA is still an ancestor of the head (`git merge-base --is-ancestor <last> <head>`): `git log -p --first-parent --remerge-diff <last>..<head>` — each new commit, and of a merge commit only what its author changed beyond the automatic merge.
+- After a rebase or force-push: `git range-diff origin/<base>..<last> origin/<base>..<head>`, then `git show` each commit it marks new or changed.
+
+What the new base brought in is reviewed only where it meets the branch's own changes — a renamed API the branch calls, a test the branch's code now breaks.
 
 Follow pr-review-loop's "caller's control loop" section as written; when it exits (`decision: stop` or the cap hit), move to Phase 3.
 
