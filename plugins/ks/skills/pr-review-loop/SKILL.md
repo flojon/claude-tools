@@ -58,6 +58,20 @@ A round subagent's first step is reconstructing round history from disk, not mem
 
    Write any probe file with a heredoc or the Write tool, never a bare redirect that can block on stdin — one that does not terminate hangs the round with nothing to show for it.
 
+   **Separate moved code from changed code** on a diff that removes lines, also once, before reviewers start. A refactor that moves a function reads in the diff as a deletion plus an addition, and reviewers then spend the round on code that only changed place:
+
+   ```bash
+   python3 "<this skill's directory>/scripts/moved-code.py" <base> <head>   # `python` where there is no python3
+   ```
+
+   It lists moved blocks (head location ← base location), copied blocks (the same removed code added twice: the copy is new code), and every added or removed line that didn't move. Put the output in `notes_path` and tell reviewers: moved blocks are pre-existing code, the rest is the change. A block boundary inside one function means it was reordered or split, so that function is read whole. A pathspec after `--` narrows the diff, but hides moves that cross its edge.
+
+   **List what the diff declares and what its deletions leave behind**, once, into `notes_path`, so every reviewer starts from the same dead-code candidates:
+   - each new symbol — function, method, type, export, constant, config or translation key — with `git grep -w <name> <head>`; a single hit is the definition alone. A common name (`open`, `save`) hits other classes too, so for a method grep its calls on the owning object;
+   - each deletion, traced to what only it used: a helper whose last caller went, a type, a mock, a key, a fixture.
+
+   A candidate is not a finding until a reviewer has read the call sites; reflection, DI registration and string-keyed lookups are callers grep doesn't see.
+
 2. **Dispatch fresh reviewers in parallel**, per superpowers:requesting-code-review — each gets `context`, `notes_path`, `diff_range`, and its own `axis` name plus that axis's row (name and earn-condition text) from "Which axes a change earns" above, never any session history — a fresh-context reviewer has no other way to know which of the six lenses it is holding.
 
    **Dispatch them in the foreground: every reviewer's Agent call in one message, each with `run_in_background: false`.** They still run concurrently, and that one step returns only once all of them have reported. Never background a reviewer and end your turn to wait for it: a subagent that goes idle without handing back is told to hand back immediately, so the round returns before any reviewer has reported.
