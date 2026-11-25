@@ -39,7 +39,7 @@ You are the **orchestrator**: dispatch one fresh subagent per phase (Agent tool,
 
    `is_own_pr` = the PR's author login equals this. Reviewing someone else's PR never edits their branch on its own initiative, `--no-fix` or not.
 
-3. **Pull context.** If the PR body references a ticket or issue, fetch its text too — the same acceptance-criteria reading implement-ticket's Phase 1 does, but **read-only**: this skill never claims a ticket or moves its status. Without a linked ticket, the PR title and body are the only statement of what "right" looks like, and that is what reviewers get as `context`.
+3. **Pull context.** If the PR body references a ticket or issue, fetch its text too — the same acceptance-criteria reading implement-ticket's Phase 1 does, but **read-only**: this skill never claims a ticket or moves its status. Without a linked ticket, the PR title and body are the only statement of what "right" looks like, and that is what reviewers get as `context`. Add the commit bodies (`git log --format='%h %s%n%b' <base>..<head>`) either way: authors often explain a choice there and nowhere else, and an explained choice is a settled one (pr-review-loop's triage step).
 
 4. **Get a checkout to build from.** Reuse a local worktree if one already exists for this branch (`git worktree list`); otherwise create one the same collision-proof way implement-ticket's Phase 2 does — a random suffix, not a bare slug, so concurrent runs never collide — built from the PR's actual head, never a stale local copy:
 

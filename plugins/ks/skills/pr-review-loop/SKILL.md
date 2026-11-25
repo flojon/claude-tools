@@ -72,12 +72,22 @@ A round subagent's first step is reconstructing round history from disk, not mem
 
    ```bash
    gh pr view "$PR" --json comments,reviews
+   gh api graphql -F o=<owner> -F r=<repo> -F n=<n> -f query='
+   query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){pullRequest(number:$n){
+     reviewThreads(first:100){nodes{isResolved isOutdated path line originalLine
+       comments(first:50){nodes{author{login} createdAt originalCommit{oid} body}}}}}}}'
    gh issue view <n> --json comments
    ```
+
+   **`gh pr view` never returns inline review threads** — only top-level comments and review bodies — and inline threads are where bots and human reviewers leave most findings, so the GraphQL query is not optional. Read resolved threads too: a fix that doesn't do what its thread asked is a finding again. An outdated thread has `line: null`; judge it against the code at its `originalCommit`, not the head. Bots also list findings in review bodies without a thread, including ones they mark suppressed.
+
+   Give each open finding from someone else a verdict — **holds**, **weakened** (true in a narrower form; say which), or **falls** (with the evidence) — rather than restating it as a new finding of your own.
 
    These go through the same triage as everything else. A bot is a reviewer that is confidently wrong at a higher rate, not a lower one. A passing bot check is not an approval and not a review seat — never block a round waiting for one, and never count its silence as a clean pass; note that it did not report and move on. If the repo has a reviewer that only runs on a manual trigger, say so in the report so the human can fire it — do not trigger it directly, since that spends someone else's quota.
 
 4. **Triage every finding** as must-fix / worth-fixing / noise, per superpowers:receiving-code-review. Verify each claim against the code before accepting it — a wrong finding earns a written rebuttal, not a compliant edit.
+
+   **A settled decision is noise, not a finding.** A choice explained in the ticket, the PR description, a commit body or a review thread has already been made; raise it again only when the stated reason is wrong, and say why. Settling a design never exempts a test from having to be able to fail.
 
 5. **Under `fix_mode: fix-inline`, fix must-fix and agreed worth-fixing now**, and log rejections and their reasons in `notes_path`. **Under `fix_mode: report-only`, fix nothing** — hand the triaged findings back to the caller. A later round on the same diff only finds something new once the caller (or a human) has changed the code in between; dispatching one against an unchanged diff just re-reports round 1.
 
