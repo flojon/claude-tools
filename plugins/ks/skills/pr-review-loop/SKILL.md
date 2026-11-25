@@ -19,7 +19,7 @@ Run fresh-context reviewer subagents against a diff, round after round, until a 
 | `repo`, `diff_range` (or `pr_number`) | what to review |
 | `context` | ticket/acceptance-checklist text, or the PR description if there is no ticket — whatever tells a reviewer what "right" looks like |
 | `notes_path` | where round history and verify-leg output live, so reviewers and later rounds can read it without session history |
-| `verify_legs` | the build/test commands, and which are cheap vs. expensive |
+| `verify_legs` | the build/test commands, and which are cheap vs. expensive; a leg the caller marks `ci-green` (with a run URL) already passed in CI at the commit under review |
 | `cap` | round limit — the caller decides its own default and its own override flag |
 | `fix_mode` | `fix-inline` — the round subagent fixes must-fix/worth-fixing findings itself before deciding whether to continue — or `report-only` — it triages and reports but never edits the branch; fixing, if any, happens outside this loop, and a fresh round only earns its cost after that edit lands. Both modes return `round_summary` to the caller; this loop never posts it anywhere itself |
 | `seed_axes` | axes already known to be earned (a size gate, or a prior round's `next_round_recommendation`) — omit to compute round 1 from the table below |
@@ -53,6 +53,8 @@ Round 1 (or the first round this loop runs for a given diff) earns from all six;
 A round subagent's first step is reconstructing round history from disk, not memory: read `notes_path` before anything else — the durable record of what earlier rounds found, fixed, and rejected (each round appends its own `round_summary` there, per step 7 below), and what makes thrash and whack-a-mole detectable without seeing prior transcripts.
 
 1. **Build and test first, once, and hand reviewers the result.** A red diff never goes to reviewers, and a green one does not need proving again by each of them. Put the command and its output in `notes_path`; tell every reviewer the suite is green as of this commit.
+
+   A leg marked `ci-green` for this exact commit is that result already: record its run URL in `notes_path` instead of running it again. Run only the legs without one. The run CI never makes is a fail-check — the new or changed test that guards the change, run with the change reverted, should go red — so it is worth doing where cheap.
 
    **Reviewers must not re-run the full suite.** N reviewers each running the matrix is N-1 redundant runs of a result already in hand, and on a loaded machine it is what makes timing-sensitive tests flake and builds crawl. What a reviewer should run is small and targeted: a throwaway probe that proves one finding, or a filtered run of the tests their finding touches.
 

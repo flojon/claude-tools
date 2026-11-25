@@ -57,7 +57,16 @@ You are the **orchestrator**: dispatch one fresh subagent per phase (Agent tool,
 
    Valid under the same rule as implement-ticket's Phase 2 — all of: it exists; every source file it names still exists and hashes the same as recorded; nothing that outranks those sources in the discovery order below exists now but didn't at cache time. Invalid or absent, rediscover — CI config first, then CLAUDE.md/AGENTS.md/CONTRIBUTING, then README, then project files — and write it back.
 
-6. **Write a notes file for this review**, same shape and purpose as implement-ticket's: reviewers and rounds read it, never your context.
+6. **Read CI at the PR's head before planning any local run.** A pushed PR usually already has its build, tests and lint run by CI on the exact commit under review; repeating a green job locally costs minutes and settles nothing.
+
+   ```bash
+   gh pr checks <n|url>
+   gh run view <run-id> --json headSha,jobs
+   ```
+
+   Confirm the run's `headSha` is the PR head, then mark each verify leg: `ci-green` (a job that ran it passed at this head — record the run URL) or `local` (no run at this head, or the job was skipped, cancelled, failed for an unrelated reason, or the leg isn't in CI at all). Only `local` legs are run in Phase 2.
+
+7. **Write a notes file for this review**, same shape and purpose as implement-ticket's: reviewers and rounds read it, never your context.
 
    ```bash
    NOTES="$(git rev-parse --absolute-git-dir)/pr-review-notes-<n>.md"
@@ -68,7 +77,7 @@ You are the **orchestrator**: dispatch one fresh subagent per phase (Agent tool,
 - `pr_number`, `pr_url`, `pr_title`, `is_draft`
 - `is_own_pr`: true | false
 - `worktree_path`, `notes_path`
-- `verify_legs`
+- `verify_legs`, each marked `ci-green` (with its run URL) or `local`
 - `context`: the ticket text if one is linked, else the PR description
 - `blocked`: `null` | `{reason}` — non-null means stop and tell the human rather than dispatching Phase 2
 
@@ -118,6 +127,7 @@ This phase ends the run once an action is taken or the human declines all of the
 | Approving with an open `must_fix` | The entire point of request-changes is that it's still there. |
 | Re-running a round against a diff nothing has touched since the last one | It will just restate the same findings at the same cost. |
 | Rediscovering verify legs from scratch | implement-ticket's Recon cache already has them for this repo — read it, don't redo it. |
+| Re-running legs CI already ran green at the PR head | Same commit, same result, minutes spent. Cite the CI run instead; a local run earns its place only for what CI didn't cover, or a fail-check. |
 | Treating a draft PR as ready for review | The author may have left it a draft specifically because it isn't ready — ask before assuming otherwise. |
 | Reading pr-review-loop's `report-only` findings as already fixed | Nothing was edited. `fixed` is `false` on every one of them until Phase 3 says otherwise. |
 
