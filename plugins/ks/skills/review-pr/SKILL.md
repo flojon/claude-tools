@@ -93,13 +93,24 @@ Follow pr-review-loop's "caller's control loop" section as written; when it exit
 Once the loop exits, you hold the final round's `must_fix`, `rejected`, `round_summary`, and the cumulative round history pr-review-loop wrote to `notes_path`.
 
 1. **Summarize for the human:** what ran (axes, rounds), what's still outstanding (`must_fix` unresolved), what was rejected and why. Write this summary to `SUMMARY="$(git rev-parse --absolute-git-dir)/pr-review-summary-<n>.md"` — the `$SUMMARY` the posting commands below read from.
+
+   List the outstanding findings as a numbered list the human can pick from by number, weightiest first, each with a bold first line — number, severity, action, `file:line` linked at the reviewed head, a title of a few words — then the finding and its consequence in one to three sentences, and the comment it would post, worded as below.
+
+   **Confidence decides the action, never the severity.** High — clearly wrong, breaks a rule the repo states, or a mismatch verified on both sides → a **comment**. Medium — depends on context the author may know better → a **question**. Low — preference or partial information → **skip**, listed but not drafted unless the human asks. A high-confidence design concern is still a question: the author may know a reason you don't.
 2. **Offer to post it**, asking which of:
+   - **inline comments** on the findings the human picks — one batched review, so it posts all or nothing: `gh api repos/<owner>/<repo>/pulls/<n>/reviews --input <payload.json>` with `commit_id` set to the reviewed head, `event: "COMMENT"`, and one entry per finding (`path`, `line`, `side: "RIGHT"`, plus `start_line` for a range). Each `line` must be one the diff shows for that file, or GitHub answers 422 and nothing posts — anchor on the nearest diff line and say so. Write the payload as UTF-8 without a BOM, then read the posted comments back and check each text arrived unchanged.
    - **comment only** — `gh pr review <n> --comment --body-file "$SUMMARY"`
    - **approve** — offer this only when `must_fix` is empty; `gh pr review <n> --approve --body-file "$SUMMARY"`
    - **request changes** — the natural default when `must_fix` is non-empty; `gh pr review <n> --request-changes --body-file "$SUMMARY"`
    - **nothing** — some reviews are just for the human's own eyes
 
-   Never default to posting without being told. Submitting a review on a pull request is visible to everyone on it, and is exactly the kind of action this skill waits on rather than assumes.
+   Never default to posting without being told. Submitting a review on a pull request is visible to everyone on it, and is exactly the kind of action this skill waits on rather than assumes. Show the exact text first and post it word for word; any change needs a new yes.
+
+   **How a posted comment reads** — it should cost the author one read:
+   - **Severity in the first words**: `Blocking:` for must-fix, no prefix for worth-fixing, `[suggestion]` for anything the author may take or leave, `Nit:` only for the plainly cosmetic (calling a real finding a nit undersells it). Pre-existing code: `Not introduced by this PR:`.
+   - **The observation and its consequence, then one question or one suggestion.** One to three sentences; a comment that needs ten usually means the design is the finding.
+   - **Concrete replacements in backticks**, quoting names exactly as the diff has them, and references as `file:line`.
+   - **Neutral and direct:** "the `catch` drops the exception", not "you forgot"; a hedge like "I think" becomes a direct question. No praise, thanks, sign-off or emoji.
 3. **If `is_own_pr` and `must_fix` is non-empty and `--no-fix` was not passed, offer to fix it too — but only offer.** If the human accepts:
    1. dispatch one subagent, per superpowers:test-driven-development, to fix the outstanding `must_fix` (and any accepted `worth-fixing`) on the PR's actual branch, and push it
    2. per superpowers:verification-before-completion, re-run the verify legs and paste the real output into `notes_path` — no green claim without it
