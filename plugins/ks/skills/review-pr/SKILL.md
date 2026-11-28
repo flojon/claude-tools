@@ -71,7 +71,7 @@ You are the **orchestrator**: dispatch one fresh subagent per phase (Agent tool,
 
    Mark each verify leg `ci-green` only when a job or step ran the same command (or an equivalent) and every matrix cell passed. `gh run view --json jobs` lists job and step names only, so read the workflow file under `.github/workflows` to decide whether a job actually runs the leg's command. A job running a different subset, flags or environment, or covering only another OS, is `local`. By bucket: `pass` is `ci-green` if the job matches the leg; `pending`, `skipping`, `cancel` and no checks are `local`; `fail` at the head is `local` and surfaced in the report, not silently dropped. Record the run URL and the head SHA beside each `ci-green`. Only `local` legs are run in Phase 2.
 
-   Marks are void once the head moves (a Phase 3 fix push, a new push between `--rounds`): revert those legs to `local` or re-run this step. The orchestrator does this before dispatching the next round (e.g. from Phase 3 step 3.2 after a fix push, or between `--rounds`). Never store the marks in step 5's cache write-back.
+   Marks are void once the head moves (a Phase 3 fix push, a new push between `--rounds`). Before dispatching the next round, the orchestrator re-runs this step: re-read the head with `gh pr view <n|url> --json headRefOid`, re-sync the worktree to it, then redo the comparison above. Legs revert to `local` whenever CI at the new head is still pending. Never store the marks in step 5's cache write-back.
 
 7. **Write a notes file for this review**, same shape and purpose as implement-ticket's: reviewers and rounds read it, never your context.
 
@@ -85,6 +85,7 @@ You are the **orchestrator**: dispatch one fresh subagent per phase (Agent tool,
 - `is_own_pr`: true | false
 - `worktree_path`, `notes_path`
 - `verify_legs`, each marked `ci-green` (with its run URL and head SHA) or `local`
+- `head_sha`: the PR head the marks were computed against
 - `context`: the ticket text if one is linked, else the PR description
 - `blocked`: `null` | `{reason}` — non-null means stop and tell the human rather than dispatching Phase 2
 
@@ -118,7 +119,7 @@ Once the loop exits, you hold the final round's `must_fix`, `rejected`, `round_s
    Never default to posting without being told. Submitting a review on a pull request is visible to everyone on it, and is exactly the kind of action this skill waits on rather than assumes.
 3. **If `is_own_pr` and `must_fix` is non-empty and `--no-fix` was not passed, offer to fix it too — but only offer.** If the human accepts:
    1. dispatch one subagent, per superpowers:test-driven-development, to fix the outstanding `must_fix` (and any accepted `worth-fixing`) on the PR's actual branch, and push it
-   2. per superpowers:verification-before-completion, re-run the verify legs and paste the real output into `notes_path` — no green claim without it
+   2. the fix push moved the head, so any `ci-green` marks are void: re-run Phase 1 step 6 (re-reading `headRefOid`) before re-verifying; then per superpowers:verification-before-completion, re-run the verify legs and paste the real output into `notes_path` — no green claim without it
    3. dispatch another pr-review-loop round, still `fix_mode: report-only`, scoped to the delta, so the fix gets checked rather than trusted
    4. return to step 2's posting offer with the updated result
 4. **Clean up the worktree you created**, if any, once the human's chosen action is taken — same as implement-ticket's Phase 6 — and name anything deliberately left behind.
