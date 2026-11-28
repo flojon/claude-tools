@@ -198,6 +198,13 @@ class SafeParser(argparse.ArgumentParser):
         self.exit(2, show(f"{self.prog}: error: {message}") + "\n")
 
 
+def non_negative(text):
+    value = int(text)
+    if value < 0:
+        raise argparse.ArgumentTypeError("must be 0 or more")
+    return value
+
+
 def cap(rows, limit):
     """Return the rows to print and how many were cut."""
     if limit and len(rows) > limit:
@@ -206,6 +213,10 @@ def cap(rows, limit):
 
 
 def main():
+    # before parsing, so an unencodable argument in a usage error cannot crash the console
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8", errors="replace")
+
     argv = sys.argv[1:]
     pathspec = []
     if "--" in argv:
@@ -216,12 +227,9 @@ def main():
     parser.add_argument("head")
     parser.add_argument("--min-lines", type=int, default=3,
                         help="lines with letters or digits a block needs to count as moved (default 3)")
-    parser.add_argument("--max-rows", type=int, default=1000,
+    parser.add_argument("--max-rows", type=non_negative, default=1000,
                         help="rows printed per section before '... N more' (default 1000, 0 = unlimited)")
     args = parser.parse_args(argv)
-
-    for stream in (sys.stdout, sys.stderr):
-        stream.reconfigure(encoding="utf-8", errors="replace")
 
     for ref in (args.base, args.head):
         if ref.startswith("-"):
@@ -242,6 +250,7 @@ def main():
             print("warning: no changed lines found: empty diff, or the pathspec matched nothing",
                   file=sys.stderr)
     blocks, moved_added, moved_removed = find_moves(removed, added, args.min_lines)
+    rest = "; use --max-rows 0 or a pathspec to see the rest"
 
     print(f"== {show(args.base)}...{show(args.head)}: removed lines numbered at merge-base {merge_base[:10]}, "
           f"added lines at {show(args.head)}")
@@ -258,7 +267,7 @@ def main():
             print(f"{show(new_path)}:{new_start}-{new_start + length - 1}  <-  "
                   f"{show(old_path)}:{old_start}-{old_start + length - 1}  ({length} lines{note})")
         if more:
-            print(f"... {more} more")
+            print(f"... {more} more{rest}")
 
     for title, lines, flags, sign in (("added lines that did not move: review as new code", added, moved_added, "+"),
                                        ("removed lines that did not move: review as deleted code", removed, moved_removed, "-")):
@@ -268,10 +277,19 @@ def main():
         for path, number, text in shown:
             print(f"{show(path)}:{number}\t{sign}{show(text, keep_tab=True)}")
         if more:
-            print(f"... {more} more")
+            print(f"... {more} more{rest}")
 
-    print(f"\n== {sum(moved_added)} of {len(added)} added lines moved, "
-          f"{sum(moved_removed)} of {len(removed)} removed lines moved")
+    if binary:
+        print(f"\n== skipped binary-looking files, NUL bytes ({len(binary)})")
+        for path in binary:
+            print(show(path))
+
+    totals = (f"{sum(moved_added)} of {len(added)} added lines moved, "
+              f"{sum(moved_removed)} of {len(removed)} removed lines moved")
+    if skipped or binary:
+        totals += (f"; {skipped + len(binary)} file(s) not compared "
+                   f"({skipped} rename, mode-only or empty, {len(binary)} binary)")
+    print(f"\n== {totals}")
 
 
 if __name__ == "__main__":
