@@ -24,7 +24,7 @@ You are the **orchestrator**: dispatch one fresh subagent per phase (Agent tool,
 1. **Resolve the PR:**
 
    ```bash
-   gh pr view <n|url> --json number,url,title,body,author,baseRefName,headRefName,isDraft,files,additions,deletions,reviews,comments,mergeable,mergeStateStatus
+   gh pr view <n|url> --json number,url,title,body,author,baseRefName,headRefName,isDraft,files,additions,deletions,reviews,comments,mergeable,mergeStateStatus,headRefOid
    ```
 
    With nothing to identify it, resolve from the current branch (`gh pr view` with no argument). If neither works, return `blocked` — there is nothing to review.
