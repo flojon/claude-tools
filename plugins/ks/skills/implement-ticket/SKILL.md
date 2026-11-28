@@ -23,7 +23,7 @@ You start as the **orchestrator**. From here on, you never read a ticket, run a 
 
 **State that must outlive one subagent lives on disk, never in your context.** The acceptance checklist and verify legs go in the notes file (Phase 2); round-by-round review history goes in the rolling PR comment (Phase 5) — exactly as this skill already required before reviewer subagents existed. Extend the same discipline to the boundary between you and whichever subagent runs next: it re-derives what it needs from the notes file, the PR and the diff, not from being told your history.
 
-**A subagent cannot talk to the human — you can.** Wherever an instruction below says "ask" or "stop and ask," a dispatched subagent instead returns the question (`open_questions`, `blocked`, or a named flag) and stops short of deciding it. You read that field, ask the human, and fold the answer into the next dispatch. **Before you ask, show the human what they are answering about** — they often start the run without having read the ticket. Lead with the ticket id and title and `ticket_summary`; for `blocked`, add the holder and state and ask whether to proceed; for `open_questions`, list every question numbered, each with its options and what each answer would change. This applies to `open_questions` from any phase, not only Phase 1. Only then ask. Phase 3 (the size gate) is the one phase that runs in your own context — every other phase is a subagent.
+**A subagent cannot talk to the human — you can.** Wherever an instruction below says "ask" or "stop and ask," a dispatched subagent instead returns the question (`open_questions`, `blocked`, or a named flag) and stops short of deciding it. You read that field, ask the human, and fold the answer into the next dispatch. **Before you ask, show the human what they are answering about** — they often start the run without having read the ticket. Lead with the ticket id and title and `ticket_summary` (a later-phase question comes after your context may have been compacted, so re-read the title and `ticket_summary` from the notes file); for `blocked`, add the holder and state and ask whether to proceed; for `open_questions`, list every question numbered, each with its options and what each answer would change. This applies to `open_questions` from any phase, not only Phase 1. Only then ask. Phase 3 (the size gate) is the one phase that runs in your own context — every other phase is a subagent.
 
 **You hold, across the whole run:** the ticket id, `worktree_path`, `notes_path`, the PR number once one exists, the round counter against the cap, and `fast_path` once Phase 3 decides it — never a commit SHA. Every dispatch reads the branch's actual tip itself; told what the tip should be, it will act on that instead of what is actually there. Nothing else needs to survive from one dispatch to the next.
 
@@ -136,7 +136,7 @@ Present them as the Orchestration model describes: ticket id and title and `tick
 
 ## Phase 2 — Recon
 
-**Dispatched as:** one subagent, given the ticket id, the repo, and Phase 1's `acceptance_checklist` and `resume` (they get written into the notes file this phase creates).
+**Dispatched as:** one subagent, given the ticket id and title, the repo, and Phase 1's `ticket_summary`, `acceptance_checklist` and `resume` (they get written into the notes file this phase creates).
 
 Do this before touching code, so a missing prerequisite fails in seconds rather than an hour in.
 
@@ -173,7 +173,7 @@ git worktree add -b "$SLUG" ".claude/worktrees/$SLUG" "$BASE"
 
 If a wrapper intercepts `git` and fails inside worktrees, call `/usr/bin/git` directly. Your cwd may be pinned outside the worktree — use absolute paths for every file operation rather than assuming you can `cd` into it.
 
-6. **Write the notes file where it survives past this subagent.** The acceptance checklist and the verify legs are consumed by every later phase and by reviewer subagents that cannot see any conversation. Seed it with Phase 1's `acceptance_checklist` and `resume`, and put it where the repo will never commit it:
+6. **Write the notes file where it survives past this subagent.** The acceptance checklist and the verify legs are consumed by every later phase and by reviewer subagents that cannot see any conversation. Seed it with the ticket title and Phase 1's `ticket_summary`, `acceptance_checklist` and `resume`, and put it where the repo will never commit it:
 
 ```bash
 NOTES="$(git rev-parse --absolute-git-dir)/ticket-notes.md"
