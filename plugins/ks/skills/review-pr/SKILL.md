@@ -24,7 +24,7 @@ You are the **orchestrator**: dispatch one fresh subagent per phase (Agent tool,
 1. **Resolve the PR:**
 
    ```bash
-   gh pr view <n|url> --json number,url,title,body,author,baseRefName,headRefName,isDraft,files,additions,deletions,reviews,comments,mergeable,mergeStateStatus
+   gh pr view <n|url> --json number,url,title,body,author,baseRefName,headRefName,isDraft,files,additions,deletions,reviews,comments,mergeable,mergeStateStatus,headRefOid
    ```
 
    With nothing to identify it, resolve from the current branch (`gh pr view` with no argument). If neither works, return `blocked` — there is nothing to review.
@@ -67,7 +67,7 @@ You are the **orchestrator**: dispatch one fresh subagent per phase (Agent tool,
 
 - `pr_number`, `pr_url`, `pr_title`, `is_draft`
 - `is_own_pr`: true | false
-- `worktree_path`, `notes_path`
+- `head_sha` (the PR's `headRefOid` the review ran against), `worktree_path`, `notes_path`
 - `verify_legs`
 - `context`: the ticket text if one is linked, else the PR description
 - `blocked`: `null` | `{reason}` — non-null means stop and tell the human rather than dispatching Phase 2
@@ -84,6 +84,8 @@ pr-review-loop never posts anywhere on its own — it hands back each round's `r
 
 A round beyond the first only earns its cost once the diff has actually changed — a new push, or a fix accepted in Phase 3. **If nothing has changed since the last round and the human asks for another anyway, say so and skip the dispatch** rather than re-running an identical review at the same cost for the same answer.
 
+Tell every round to record each finding — worth-fixing ones included, not only `must_fix` — in its `round_summary` with severity, confidence (high / medium / low), `file:line` on the PR's new side, a one-to-three-sentence body and a drafted comment: pr-review-loop's return fields carry none of that, and Phase 3 reads it from `notes_path`.
+
 Follow pr-review-loop's "caller's control loop" section as written; when it exits (`decision: stop` or the cap hit), move to Phase 3.
 
 ## Phase 3 — Offer next actions
@@ -92,14 +94,33 @@ Follow pr-review-loop's "caller's control loop" section as written; when it exit
 
 Once the loop exits, you hold the final round's `must_fix`, `rejected`, `round_summary`, and the cumulative round history pr-review-loop wrote to `notes_path`.
 
-1. **Summarize for the human:** what ran (axes, rounds), what's still outstanding (`must_fix` unresolved), what was rejected and why. Write this summary to `SUMMARY="$(git rev-parse --absolute-git-dir)/pr-review-summary-<n>.md"` — the `$SUMMARY` the posting commands below read from.
+1. **Summarize for the human:** what ran (axes, rounds), what's still outstanding (`must_fix` and worth-fixing), what was rejected and why. Write this summary, numbered list included, to `SUMMARY="$(git rev-parse --absolute-git-dir)/pr-review-summary-<n>.md"` — the `$SUMMARY` the posting commands below read from.
+
+   List the outstanding findings as a numbered list the human can pick from by number, highest severity first (confidence breaks ties), each with a bold first line — number, severity, action, `file:line` linked at `head_sha` (`https://github.com/<owner>/<repo>/blob/<head_sha>/<path>#L<n>`), a title of a few words — then the finding and its consequence in one to three sentences, and the comment it would post, worded as below.
+
+   **Confidence decides the action; severity stays on the finding and still decides the verdict below.** High — clearly wrong, breaks a rule the repo states, or a mismatch verified on both sides → a **comment**. Medium — depends on context the author may know better → a **question**. Low — preference or partial information → **skip**, listed but not drafted unless the human asks; a skipped must-fix still counts as outstanding for the verdict. A high-confidence design concern is still a question: the author may know a reason you don't.
 2. **Offer to post it**, asking which of:
+   - **inline comments** on the findings the human picks — one batched review, so it posts all or nothing. Write this payload, then `gh api repos/{owner}/{repo}/pulls/<n>/reviews --input <payload.json>`:
+
+     ```json
+     {"commit_id": "<head_sha>", "event": "COMMENT", "body": "<one line, or empty>",
+      "comments": [{"path": "<file>", "line": 12, "side": "RIGHT", "body": "<comment>"},
+                   {"path": "<file>", "start_line": 10, "start_side": "RIGHT", "line": 12, "side": "RIGHT", "body": "<comment>"}]}
+     ```
+
+     `line` is the file's line number, not a diff position. It must be an added or context line (`RIGHT`) or a removed line (`LEFT`) inside a hunk of `gh pr diff <n>`, and a range must sit inside one hunk; otherwise GitHub answers 422 and nothing posts. A finding with no valid anchor (unchanged code, outside every hunk) goes in the review `body` instead — never moved to a nearby line. Before posting, re-read the PR's `headRefOid`; if it moved off `head_sha`, tell the human. Write the payload with the Write tool or a heredoc next to `$SUMMARY` (PowerShell 5.1 `>` writes a BOM or UTF-16), as UTF-8 without a BOM, and parse it as JSON first. After posting, fetch `gh api repos/{owner}/{repo}/pulls/<n>/reviews/<id>/comments --jq '.[].body'` into a UTF-8 file and compare it to the payload bodies there, not on the console; on a mismatch report it to the human and do not repost. This review carries no verdict: if the human also wants approve or request changes, that is a second review from the options below, with a short body-file that does not repeat the inline comments.
    - **comment only** — `gh pr review <n> --comment --body-file "$SUMMARY"`
    - **approve** — offer this only when `must_fix` is empty; `gh pr review <n> --approve --body-file "$SUMMARY"`
    - **request changes** — the natural default when `must_fix` is non-empty; `gh pr review <n> --request-changes --body-file "$SUMMARY"`
    - **nothing** — some reviews are just for the human's own eyes
 
-   Never default to posting without being told. Submitting a review on a pull request is visible to everyone on it, and is exactly the kind of action this skill waits on rather than assumes.
+   Never default to posting without being told. Submitting a review on a pull request is visible to everyone on it, and is exactly the kind of action this skill waits on rather than assumes. Show the exact text first and post it word for word; any change needs a new yes.
+
+   **How a posted comment reads** — it should cost the author one read:
+   - **Severity in the first words**, for a comment action: `Blocking:` for must-fix, no prefix for worth-fixing, `[suggestion]` for anything the author may take or leave, `Nit:` only for the plainly cosmetic (calling a real finding a nit undersells it). A question action opens `Question:` whatever the severity — never `Blocking:` on a question. Pre-existing code: `Not introduced by this PR:`.
+   - **The observation and its consequence, then one question or one suggestion.** One to three sentences; a comment that needs ten usually means the design is the finding.
+   - **Concrete replacements in backticks**, quoting names exactly as the diff has them, and references as `file:line`.
+   - **Neutral and direct:** "the `catch` drops the exception", not "you forgot"; a hedge like "I think" becomes a direct question. No praise, thanks, sign-off or emoji.
 3. **If `is_own_pr` and `must_fix` is non-empty and `--no-fix` was not passed, offer to fix it too — but only offer.** If the human accepts:
    1. dispatch one subagent, per superpowers:test-driven-development, to fix the outstanding `must_fix` (and any accepted `worth-fixing`) on the PR's actual branch, and push it
    2. per superpowers:verification-before-completion, re-run the verify legs and paste the real output into `notes_path` — no green claim without it
@@ -119,11 +140,12 @@ This phase ends the run once an action is taken or the human declines all of the
 | Re-running a round against a diff nothing has touched since the last one | It will just restate the same findings at the same cost. |
 | Rediscovering verify legs from scratch | implement-ticket's Recon cache already has them for this repo — read it, don't redo it. |
 | Treating a draft PR as ready for review | The author may have left it a draft specifically because it isn't ready — ask before assuming otherwise. |
+| Posting inline comments the human hasn't seen, on a line the diff doesn't show, or against a `commit_id` that is no longer the PR head | Nothing posts (422), or the comment lands on code the author already changed. Show the exact text, anchor on real diff lines, re-check the head. |
 | Reading pr-review-loop's `report-only` findings as already fixed | Nothing was edited. `fixed` is `false` on every one of them until Phase 3 says otherwise. |
 
 ## Red flags
 
-- About to call `gh pr review --approve` or `--request-changes` without having asked which action the human wants
+- About to call `gh pr review --approve`, `--request-changes` or `gh api .../reviews` without having asked which action the human wants
 - About to fix a finding on a PR that belongs to someone else
 - About to offer to fix without first checking `is_own_pr`
 - About to dispatch another round against a diff nothing has touched since the last one
