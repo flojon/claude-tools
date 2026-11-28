@@ -23,7 +23,7 @@ You start as the **orchestrator**. From here on, you never read a ticket, run a 
 
 **State that must outlive one subagent lives on disk, never in your context.** The acceptance checklist and verify legs go in the notes file (Phase 2); round-by-round review history goes in the rolling PR comment (Phase 5) — exactly as this skill already required before reviewer subagents existed. Extend the same discipline to the boundary between you and whichever subagent runs next: it re-derives what it needs from the notes file, the PR and the diff, not from being told your history.
 
-**A subagent cannot talk to the human — you can.** Wherever an instruction below says "ask" or "stop and ask," a dispatched subagent instead returns the question (`open_questions`, `blocked`, or a named flag) and stops short of deciding it. You read that field, ask the human, and fold the answer into the next dispatch. Phase 3 (the size gate) is the one phase that runs in your own context — every other phase is a subagent.
+**A subagent cannot talk to the human — you can.** Wherever an instruction below says "ask" or "stop and ask," a dispatched subagent instead returns the question (`open_questions`, `blocked`, or a named flag) and stops short of deciding it. You read that field, ask the human, and fold the answer into the next dispatch. **Before you ask, show the human what they are answering about** — they often start the run without having read the ticket. Lead with the ticket id and title and `ticket_summary`; for `blocked`, add the holder and state and ask whether to proceed; for `open_questions`, list every question numbered, each with its options and what each answer would change. This applies to `open_questions` from any phase, not only Phase 1. Only then ask. Phase 3 (the size gate) is the one phase that runs in your own context — every other phase is a subagent.
 
 **You hold, across the whole run:** the ticket id, `worktree_path`, `notes_path`, the PR number once one exists, the round counter against the cap, and `fast_path` once Phase 3 decides it — never a commit SHA. Every dispatch reads the branch's actual tip itself; told what the tip should be, it will act on that instead of what is actually there. Nothing else needs to survive from one dispatch to the next.
 
@@ -121,7 +121,7 @@ Return each in `warnings` with what it currently says and what it probably shoul
 **Returns to the orchestrator:**
 
 - `ticket`: id, title, one-line summary
-- `ticket_summary`: a short paragraph — the problem, what the ticket asks for, and any constraints or decisions already made in comments
+- `ticket_summary`: a short paragraph — the problem, what the ticket asks for, and any constraints or decisions already made in comments. Always returned, including when `blocked` is non-null
 - `acceptance_checklist`: the full checklist built from body + comments
 - `resume`: `none` | `{from: spec|plan|branch|pr, details}` — what was found and where to pick up
 - `siblings`: open PRs touching the same files, and what to say about them in the PR body
@@ -132,7 +132,7 @@ Return each in `warnings` with what it currently says and what it probably shoul
 
 If `blocked` or `open_questions` is non-empty, stop and ask the human before dispatching Phase 2.
 
-**Before asking, show the human what they are answering about.** They often start the run without having read the ticket. Lead with the ticket id and title, `ticket_summary`, and the `acceptance_checklist`; then list every open question, numbered, each with the options and what each answer would change. Only then ask.
+Present them as the Orchestration model describes: ticket id and title and `ticket_summary` first (plus the `acceptance_checklist` for `open_questions`), the holder and state for `blocked`, then the numbered questions or the go-ahead question.
 
 ## Phase 2 — Recon
 
