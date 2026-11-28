@@ -69,9 +69,9 @@ You are the **orchestrator**: dispatch one fresh subagent per phase (Agent tool,
 
    Compare the run's `headSha` to the **reviewed checkout's** `HEAD`, which must equal the PR's `headRefOid`. Reviewers read the worktree, not GitHub; if it is stale, re-sync it first or mark `local`. This is necessary, not sufficient: a `pull_request` run may have tested the merge ref.
 
-   Mark each verify leg `ci-green` only when a job or step ran the same command (or an equivalent) and every matrix cell passed. A job running a different subset, flags or environment, or covering only another OS, is `local`. By bucket: `pass` is `ci-green` if the job matches the leg; `pending`, `skipping`, `cancel` and no checks are `local`; `fail` at the head is `local` and surfaced in the report, not silently dropped. Record the run URL and the head SHA beside each `ci-green`. Only `local` legs are run in Phase 2.
+   Mark each verify leg `ci-green` only when a job or step ran the same command (or an equivalent) and every matrix cell passed. `gh run view --json jobs` lists job and step names only, so read the workflow file under `.github/workflows` to decide whether a job actually runs the leg's command. A job running a different subset, flags or environment, or covering only another OS, is `local`. By bucket: `pass` is `ci-green` if the job matches the leg; `pending`, `skipping`, `cancel` and no checks are `local`; `fail` at the head is `local` and surfaced in the report, not silently dropped. Record the run URL and the head SHA beside each `ci-green`. Only `local` legs are run in Phase 2.
 
-   Marks are void once the head moves (a Phase 3 fix push, a new push between `--rounds`): revert those legs to `local` or re-run this step. Never store the marks in step 5's cache write-back.
+   Marks are void once the head moves (a Phase 3 fix push, a new push between `--rounds`): revert those legs to `local` or re-run this step. The orchestrator does this before dispatching the next round (e.g. from Phase 3 step 3.2 after a fix push, or between `--rounds`). Never store the marks in step 5's cache write-back.
 
 7. **Write a notes file for this review**, same shape and purpose as implement-ticket's: reviewers and rounds read it, never your context.
 
