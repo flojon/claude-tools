@@ -22,11 +22,13 @@ def run_git(*args):
     result = subprocess.run(
         ["git", "-c", "core.quotePath=false", "-c", "diff.noprefix=false",
          "-c", "diff.mnemonicPrefix=false", *args],
-        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        capture_output=True,
     )
     if result.returncode != 0:
-        sys.exit(result.stderr.strip() or f"git {args[0]} failed")
-    return result.stdout
+        message = result.stderr.decode("utf-8", errors="replace").strip()
+        sys.exit(show(message) if message else f"git {args[0]} failed")
+    # bytes, not text mode: universal newlines would rewrite CRLF and split on a lone CR
+    return result.stdout.decode("utf-8", errors="replace")
 
 
 def unquote(path):
@@ -61,7 +63,7 @@ def header_path(spec, prefix):
 
 
 def parse_diff(diff):
-    removed, added = [], []
+    removed, added, skipped = [], [], []
     old_path = new_path = None
     old_line = new_line = 0
     in_header = False
@@ -80,14 +82,15 @@ def parse_diff(diff):
             old_line = int(old_spec[1:].split(",")[0])
             new_line = int(new_spec[1:].split(",")[0])
         elif in_header:
-            continue
+            if line.startswith(("Binary files ", "rename from ", "old mode ")):
+                skipped.append(line)
         elif line.startswith("-") and old_path:
             removed.append((old_path, old_line, line[1:]))
             old_line += 1
         elif line.startswith("+") and new_path:
             added.append((new_path, new_line, line[1:]))
             new_line += 1
-    return removed, added
+    return removed, added, skipped
 
 
 def key(text):
@@ -95,10 +98,16 @@ def key(text):
     return text.lstrip().rstrip("\r")
 
 
+def hidden(ch):
+    code = ord(ch)
+    return ((code < 32 and ch != "\t") or 0x7F <= code < 0xA0 or 0x202A <= code <= 0x202E
+            or 0x2066 <= code <= 0x2069 or code in (0x2028, 0x2029, 0x200B))
+
+
 def show(text):
-    """Make control characters other than tab visible so diff content cannot drive the terminal."""
+    """Make control, bidi and separator characters visible so diff content cannot spoof the output."""
     return "".join(
-        f"\\x{ord(ch):02x}" if (ord(ch) < 32 and ch != "\t") or 0x7F <= ord(ch) < 0xA0 else ch
+        (f"\\x{ord(ch):02x}" if ord(ch) < 0x100 else f"\\u{ord(ch):04x}") if hidden(ch) else ch
         for ch in text
     )
 
@@ -168,20 +177,27 @@ def main():
 
     for ref in (args.base, args.head):
         if ref.startswith("-"):
-            sys.exit(f"invalid ref: {ref}")
+            sys.exit(f"invalid ref: {show(ref)}")
 
     merge_base = run_git("merge-base", args.base, args.head).strip()
     diff = run_git("diff", "-U0", "--no-color", "--no-ext-diff", "--no-textconv",
-                   "--src-prefix=a/", "--dst-prefix=b/", "--find-renames",
+                   "--text", "--ignore-submodules=all", "--no-relative", "--src-prefix=a/", "--dst-prefix=b/", "--find-renames",
                    f"{args.base}...{args.head}", "--", *pathspec)
-    removed, added = parse_diff(diff)
+    removed, added, skipped = parse_diff(diff)
+    for line in skipped:
+        if line.startswith("Binary files "):
+            print(f"warning: not analysed: {show(line)}", file=sys.stderr)
     if not removed and not added:
-        print("warning: no changed lines found: empty diff, or the pathspec matched nothing",
-              file=sys.stderr)
+        if skipped:
+            print(f"warning: no changed lines found: {len(skipped)} renamed, mode-only or binary "
+                  "file(s) were skipped", file=sys.stderr)
+        else:
+            print("warning: no changed lines found: empty diff, or the pathspec matched nothing",
+                  file=sys.stderr)
     blocks, moved_added, moved_removed = find_moves(removed, added, args.min_lines)
 
-    print(f"== {args.base}...{args.head}: removed lines numbered at merge-base {merge_base[:10]}, "
-          f"added lines at {args.head}")
+    print(f"== {show(args.base)}...{show(args.head)}: removed lines numbered at merge-base {merge_base[:10]}, "
+          f"added lines at {show(args.head)}")
 
     moves = [b for b in blocks if not b[3]]
     copies = [b for b in blocks if b[3]]
