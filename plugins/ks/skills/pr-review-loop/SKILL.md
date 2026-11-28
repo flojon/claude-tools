@@ -61,14 +61,16 @@ A round subagent's first step is reconstructing round history from disk, not mem
    **Separate moved code from changed code** on a diff that removes lines, also once, before reviewers start. A refactor that moves a function reads in the diff as a deletion plus an addition, and reviewers then spend the round on code that only changed place:
 
    ```bash
-   python3 "<this skill's directory>/scripts/moved-code.py" <base> <head>   # `python` where there is no python3
+   python "<this skill's directory>/scripts/moved-code.py" <base> <head>   # or python3, whichever of the two actually runs
    ```
 
-   It lists moved blocks (head location ← base location), copied blocks (the same removed code added twice: the copy is new code), and every added or removed line that didn't move. Put the output in `notes_path` and tell reviewers: moved blocks are pre-existing code, the rest is the change. A block boundary inside one function means it was reordered or split, so that function is read whole. A pathspec after `--` narrows the diff, but hides moves that cross its edge.
+   `<this skill's directory>` is the folder holding this SKILL.md: the plugin's `skills/pr-review-loop`, where the skill was loaded from. On Windows `python3` is often a Store stub that exits without running anything, so try `python` first there.
+
+   It lists moved blocks (head location ← base location; removed lines are numbered at the merge-base, added lines at head), copied blocks (the same removed code added twice: the copy is new code), and every added or removed line that didn't move. Put the output in `notes_path` and tell reviewers: moved blocks are pre-existing code, the rest is the change. A moved block marked as differing in indentation or line endings is read, not trusted. A block boundary inside one function means it was reordered or split, so that function is read whole; a reorder within one file mostly shows as plain +/- lines, because git diffs it as in-place edits, so a function that looks rewritten may only have moved. A pathspec after `--` narrows the diff, but hides moves that cross its edge.
 
    **List what the diff declares and what its deletions leave behind**, once, into `notes_path`, so every reviewer starts from the same dead-code candidates:
-   - each new symbol — function, method, type, export, constant, config or translation key — with `git grep -w <name> <head>`; a single hit is the definition alone. A common name (`open`, `save`) hits other classes too, so for a method grep its calls on the owning object;
-   - each deletion, traced to what only it used: a helper whose last caller went, a type, a mock, a key, a fixture.
+   - each new symbol — function, method, type, export, constant, config or translation key — with `git grep -wF <name> <head>`; a single hit is the definition alone. A common name (`open`, `save`) hits other classes too, so for a method grep its calls on the owning object;
+   - each deletion, traced to what only it used: a helper whose last caller went, a type, a mock, a key, a fixture. Grep each deleted name at `<head>` too, and each helper the deleted code called: a deleted name that still hits is a dangling reference, and a helper left with zero hits (or only its own definition) is orphaned.
 
    A candidate is not a finding until a reviewer has read the call sites; reflection, DI registration and string-keyed lookups are callers grep doesn't see.
 

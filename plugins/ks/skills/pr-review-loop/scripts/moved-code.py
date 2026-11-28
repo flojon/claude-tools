@@ -3,22 +3,25 @@
 usage: moved-code.py <base> <head> [--min-lines N] [-- <pathspec>...]
 
 Compares <base>...<head> (from the merge-base, like a PR diff). A run of
-added lines whose text, ignoring indentation, also appears as a run of
+added lines whose text, ignoring leading whitespace, also appears as a run of
 removed lines is a moved block. Everything else is printed as changed
 code, the part a reviewer reads as new.
 """
 
 import argparse
+import re
 import subprocess
 import sys
 from collections import defaultdict
 
 HUNK_PREFIX = "@@ -"
+SIMPLE_ESCAPES = {"a": 7, "b": 8, "t": 9, "n": 10, "v": 11, "f": 12, "r": 13, '"': 34, "\\": 92}
 
 
 def run_git(*args):
     result = subprocess.run(
-        ["git", "-c", "core.quotePath=false", *args],
+        ["git", "-c", "core.quotePath=false", "-c", "diff.noprefix=false",
+         "-c", "diff.mnemonicPrefix=false", *args],
         capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     if result.returncode != 0:
@@ -26,22 +29,58 @@ def run_git(*args):
     return result.stdout
 
 
+def unquote(path):
+    """Decode a git C-quoted path; unquoted paths pass through."""
+    if not (len(path) >= 2 and path.startswith('"') and path.endswith('"')):
+        return path
+    out = bytearray()
+    body = path[1:-1]
+    i = 0
+    while i < len(body):
+        ch = body[i]
+        if ch == "\\" and i + 1 < len(body):
+            octal = re.match(r"[0-7]{1,3}", body[i + 1:])
+            if octal:
+                out.append(int(octal.group(), 8) & 0xFF)
+                i += 1 + len(octal.group())
+            else:
+                out.append(SIMPLE_ESCAPES.get(body[i + 1], ord(body[i + 1]) & 0xFF))
+                i += 2
+            continue
+        out.extend(ch.encode("utf-8"))
+        i += 1
+    return out.decode("utf-8", errors="replace")
+
+
+def header_path(spec, prefix):
+    # git appends a tab after unquoted paths that contain spaces
+    spec = spec.rstrip("\r").removesuffix("\t")
+    if spec == "/dev/null":
+        return None
+    return unquote(spec).removeprefix(prefix)
+
+
 def parse_diff(diff):
     removed, added = [], []
     old_path = new_path = None
     old_line = new_line = 0
-    for line in diff.splitlines():
-        line = line.rstrip("\r")
+    in_header = False
+    # splitlines() would also break on \f, \v and U+2028 inside file content
+    for line in diff.split("\n"):
         if line.startswith("diff --git "):
             old_path = new_path = None
-        elif line.startswith("--- "):
-            old_path = None if line[4:] == "/dev/null" else line[6:]
-        elif line.startswith("+++ "):
-            new_path = None if line[4:] == "/dev/null" else line[6:]
+            in_header = True
+        elif in_header and line.startswith("--- "):
+            old_path = header_path(line[4:], "a/")
+        elif in_header and line.startswith("+++ "):
+            new_path = header_path(line[4:], "b/")
         elif line.startswith(HUNK_PREFIX):
+            in_header = False
             old_spec, new_spec = line.split(" ")[1:3]
             old_line = int(old_spec[1:].split(",")[0])
             new_line = int(new_spec[1:].split(",")[0])
+        elif in_header:
+            continue
         elif line.startswith("-") and old_path:
             removed.append((old_path, old_line, line[1:]))
             old_line += 1
@@ -52,7 +91,16 @@ def parse_diff(diff):
 
 
 def key(text):
-    return " ".join(text.split())
+    # interior spacing is code, so only leading whitespace and a trailing CR are ignored
+    return text.lstrip().rstrip("\r")
+
+
+def show(text):
+    """Make control characters other than tab visible so diff content cannot drive the terminal."""
+    return "".join(
+        f"\\x{ord(ch):02x}" if (ord(ch) < 32 and ch != "\t") or 0x7F <= ord(ch) < 0xA0 else ch
+        for ch in text
+    )
 
 
 def substantive(text):
@@ -91,10 +139,11 @@ def find_moves(removed, added, min_lines):
             continue
         j, length = best
         copy = any(source_uses[j + k] for k in range(length))
+        exact = all(added[i + k][2] == removed[j + k][2] for k in range(length))
         for k in range(length):
             moved_added[i + k] = True
             source_uses[j + k] += 1
-        blocks.append((i, j, length, copy))
+        blocks.append((i, j, length, copy, exact))
         i += length
 
     moved_removed = [source_uses[j] > 0 for j in range(len(removed))]
@@ -117,10 +166,18 @@ def main():
     for stream in (sys.stdout, sys.stderr):
         stream.reconfigure(encoding="utf-8", errors="replace")
 
+    for ref in (args.base, args.head):
+        if ref.startswith("-"):
+            sys.exit(f"invalid ref: {ref}")
+
     merge_base = run_git("merge-base", args.base, args.head).strip()
     diff = run_git("diff", "-U0", "--no-color", "--no-ext-diff", "--no-textconv",
-                   "--find-renames", f"{args.base}...{args.head}", "--", *pathspec)
+                   "--src-prefix=a/", "--dst-prefix=b/", "--find-renames",
+                   f"{args.base}...{args.head}", "--", *pathspec)
     removed, added = parse_diff(diff)
+    if not removed and not added:
+        print("warning: no changed lines found: empty diff, or the pathspec matched nothing",
+              file=sys.stderr)
     blocks, moved_added, moved_removed = find_moves(removed, added, args.min_lines)
 
     print(f"== {args.base}...{args.head}: removed lines numbered at merge-base {merge_base[:10]}, "
@@ -131,17 +188,18 @@ def main():
     for title, group in (("moved blocks: read as pre-existing code", moves),
                          ("copied blocks: the same source appears twice, so this copy is new code", copies)):
         print(f"\n== {title} ({len(group)})")
-        for i, j, length, _ in group:
+        for i, j, length, _, exact in group:
             (new_path, new_start, _), (old_path, old_start, _) = added[i], removed[j]
-            print(f"{new_path}:{new_start}-{new_start + length - 1}  <-  "
-                  f"{old_path}:{old_start}-{old_start + length - 1}  ({length} lines)")
+            note = "" if exact else "; indentation or line endings differ, check it"
+            print(f"{show(new_path)}:{new_start}-{new_start + length - 1}  <-  "
+                  f"{show(old_path)}:{old_start}-{old_start + length - 1}  ({length} lines{note})")
 
     for title, lines, flags, sign in (("added lines that did not move: review as new code", added, moved_added, "+"),
                                        ("removed lines that did not move: review as deleted code", removed, moved_removed, "-")):
         rows = [line for line, moved in zip(lines, flags) if not moved and line[2].strip()]
         print(f"\n== {title} ({len(rows)})")
         for path, number, text in rows:
-            print(f"{path}:{number}\t{sign}{text}")
+            print(f"{show(path)}:{number}\t{sign}{show(text)}")
 
     print(f"\n== {sum(moved_added)} of {len(added)} added lines moved, "
           f"{sum(moved_removed)} of {len(removed)} removed lines moved")
