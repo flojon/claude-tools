@@ -60,11 +60,18 @@ You are the **orchestrator**: dispatch one fresh subagent per phase (Agent tool,
 6. **Read CI at the PR's head before planning any local run.** A pushed PR usually already has its build, tests and lint run by CI on the exact commit under review; repeating a green job locally costs minutes and settles nothing.
 
    ```bash
-   gh pr checks <n|url>
-   gh run view <run-id> --json headSha,jobs
+   gh pr checks <n|url> --json name,bucket,link,workflow
+   gh run view <run-id> --json headSha,conclusion,jobs,url
+   git -C <worktree> rev-parse HEAD
    ```
 
-   Confirm the run's `headSha` is the PR head, then mark each verify leg: `ci-green` (a job that ran it passed at this head — record the run URL) or `local` (no run at this head, or the job was skipped, cancelled, failed for an unrelated reason, or the leg isn't in CI at all). Only `local` legs are run in Phase 2.
+   `gh pr checks` has no SHA or run id: take `<run-id>` from the `/actions/runs/<id>/` segment of each check's `link`. A check with no such link (a commit status, a third-party check) has no run to inspect: `local`. `gh pr checks` exits 8 while checks are pending and 1 with failures or no checks; that is not a command error, so read the `--json` output either way.
+
+   Compare the run's `headSha` to the **reviewed checkout's** `HEAD`, which must equal the PR's `headRefOid`. Reviewers read the worktree, not GitHub; if it is stale, re-sync it first or mark `local`. This is necessary, not sufficient: a `pull_request` run may have tested the merge ref.
+
+   Mark each verify leg `ci-green` only when a job or step ran the same command (or an equivalent) and every matrix cell passed. A job running a different subset, flags or environment, or covering only another OS, is `local`. By bucket: `pass` is `ci-green` if the job matches the leg; `pending`, `skipping`, `cancel` and no checks are `local`; `fail` at the head is `local` and surfaced in the report, not silently dropped. Record the run URL and the head SHA beside each `ci-green`. Only `local` legs are run in Phase 2.
+
+   Marks are void once the head moves (a Phase 3 fix push, a new push between `--rounds`): revert those legs to `local` or re-run this step. Never store the marks in step 5's cache write-back.
 
 7. **Write a notes file for this review**, same shape and purpose as implement-ticket's: reviewers and rounds read it, never your context.
 
@@ -77,7 +84,7 @@ You are the **orchestrator**: dispatch one fresh subagent per phase (Agent tool,
 - `pr_number`, `pr_url`, `pr_title`, `is_draft`
 - `is_own_pr`: true | false
 - `worktree_path`, `notes_path`
-- `verify_legs`, each marked `ci-green` (with its run URL) or `local`
+- `verify_legs`, each marked `ci-green` (with its run URL and head SHA) or `local`
 - `context`: the ticket text if one is linked, else the PR description
 - `blocked`: `null` | `{reason}` — non-null means stop and tell the human rather than dispatching Phase 2
 
@@ -127,7 +134,7 @@ This phase ends the run once an action is taken or the human declines all of the
 | Approving with an open `must_fix` | The entire point of request-changes is that it's still there. |
 | Re-running a round against a diff nothing has touched since the last one | It will just restate the same findings at the same cost. |
 | Rediscovering verify legs from scratch | implement-ticket's Recon cache already has them for this repo — read it, don't redo it. |
-| Re-running legs CI already ran green at the PR head | Same commit, same result, minutes spent. Cite the CI run instead; a local run earns its place only for what CI didn't cover, or a fail-check. |
+| Re-running legs CI already ran green at the PR head | Same commit, same result, minutes spent. Cite the CI run instead; a local run earns its place only for what CI didn't cover. |
 | Treating a draft PR as ready for review | The author may have left it a draft specifically because it isn't ready — ask before assuming otherwise. |
 | Reading pr-review-loop's `report-only` findings as already fixed | Nothing was edited. `fixed` is `false` on every one of them until Phase 3 says otherwise. |
 
