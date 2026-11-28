@@ -19,7 +19,7 @@ Run fresh-context reviewer subagents against a diff, round after round, until a 
 | `repo`, `diff_range` (or `pr_number`) | what to review |
 | `context` | ticket/acceptance-checklist text, or the PR description if there is no ticket — whatever tells a reviewer what "right" looks like |
 | `notes_path` | where round history and verify-leg output live, so reviewers and later rounds can read it without session history |
-| `verify_legs` | the build/test commands, and which are cheap vs. expensive |
+| `verify_legs` | the build/test commands, and which are cheap vs. expensive; a leg the caller marks `ci-green` (with a run URL) already passed in CI at the commit under review |
 | `cap` | round limit — the caller decides its own default and its own override flag |
 | `fix_mode` | `fix-inline` — the round subagent fixes must-fix/worth-fixing findings itself before deciding whether to continue — or `report-only` — it triages and reports but never edits the branch; fixing, if any, happens outside this loop, and a fresh round only earns its cost after that edit lands. Both modes return `round_summary` to the caller; this loop never posts it anywhere itself |
 | `seed_axes` | axes already known to be earned (a size gate, or a prior round's `next_round_recommendation`) — omit to compute round 1 from the table below |
@@ -53,6 +53,10 @@ Round 1 (or the first round this loop runs for a given diff) earns from all six;
 A round subagent's first step is reconstructing round history from disk, not memory: read `notes_path` before anything else — the durable record of what earlier rounds found, fixed, and rejected (each round appends its own `round_summary` there, per step 7 below), and what makes thrash and whack-a-mole detectable without seeing prior transcripts.
 
 1. **Build and test first, once, and hand reviewers the result.** A red diff never goes to reviewers, and a green one does not need proving again by each of them. Put the command and its output in `notes_path`; tell every reviewer the suite is green as of this commit.
+
+   A leg marked `ci-green` for this exact commit is that result already: record its run URL in `notes_path` instead of running it again. Run only the legs without one.
+
+   **Fail-check the tests that guard the change — this is not optional.** CI only ever shows that tests pass; whether a test can fail is the one thing no green run says. This step is run by the round subagent, not reviewers, in every caller of this skill, including implement-ticket's fix-inline loop. Work in a separate scratch worktree (`git -C <review-worktree> worktree add --detach <path> HEAD`, started from the commit under review and independent of the current directory; a plain branch checkout fails because the PR branch is already checked out) or copy, never the review worktree or PR branch; under `report-only` that branch is never edited. Break the behaviour the test claims to pin with one targeted mutation — revert the fix, shift the boundary it asserts, drop the branch it covers — run only that test, record red or green in `notes_path`, and discard the scratch (`git worktree remove --force <path>`). Bound it: at most a few tests, prioritising those guarding the core change. A test that stays green is a finding, at least worth-fixing: it reads as coverage and proves nothing. Reasoning that a test "would fail" is not a fail-check. Skip only when the test cannot run here (a container, service or deployed environment you don't have), the toolchain or dependencies are unavailable, or the restore/build cost is disproportionate; say so in `notes_path` so reviewers treat "can it fail" as unverified rather than settled.
 
    **Reviewers must not re-run the full suite.** N reviewers each running the matrix is N-1 redundant runs of a result already in hand, and on a loaded machine it is what makes timing-sensitive tests flake and builds crawl. What a reviewer should run is small and targeted: a throwaway probe that proves one finding, or a filtered run of the tests their finding touches.
 
@@ -152,6 +156,7 @@ If `axes_unreported` is non-empty, the round has not completed: re-dispatch the 
 | Narrowing later rounds in a way that drops security | Security never retires once earned, regardless of what later rounds find. |
 | Trusting a reviewer's missing report as a clean pass | A reviewer that returned no findings and no verdict didn't review. Record it in `axes_unreported`, never assume clean. |
 | Backgrounding reviewers and ending the turn to wait for them | The round is made to hand back before any reviewer reports. Dispatch them in the foreground, all in one message. |
+| Concluding a new test "would fail" without breaking the code and running it | An assertion like `>= before` stays green whatever the code does. Only a mutation run shows the test can go red. |
 | Calling a test failure a finding without re-running it alone | Under heavy parallel load, timing-sensitive tests fail in code the change never touched. Confirm in isolation first. |
 | Patching the next instance of a defect already patched twice | The class is the finding. Ask whether it fails closed, and whether it needs to handle that input at all. |
 | Treating a bot comment as authoritative | It is a reviewer with a higher false-positive rate. Verify it like any other finding. |
