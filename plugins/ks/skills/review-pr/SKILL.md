@@ -1,6 +1,6 @@
 ---
 name: review-pr
-description: Use when asked to review a pull request, give a second opinion on someone else's PR before approving it, check whether a PR is ready to merge, review several PRs that ship one change across repos, or keep re-reviewing a PR automatically until it looks good. Triggers on a request naming one or more PR numbers or URLs, or "review this PR" / "review my PR" / "is this PR ready".
+description: Use when asked to review a pull request, give a second opinion on someone else's PR before approving it, check whether a PR is ready to merge, review several PRs that ship one change, or keep re-reviewing a PR automatically until it looks good. Triggers on a request naming one or more PR numbers or URLs, or "review this PR" / "review my PR" / "is this PR ready".
 ---
 
 # Review PR
@@ -19,15 +19,19 @@ You are the **orchestrator**: dispatch one fresh subagent per phase (Agent tool,
 
 ## Several PRs that ship one change
 
-When the request names two or more PRs that land one ticket or feature together (backend + frontend, service + worker + deployment), run Phase 1 and Phase 2 for each PR as usual — each in its own repo, worktree and notes file — then, before Phase 3, dispatch one more fresh subagent with every PR's diff and `context` to check that they line up. For each concept the PRs share:
+This applies when the request names two or more PRs and the human says they ship together, or the linked ticket or the descriptions match; if it's unclear, ask. Run Phase 1 for each PR — sequentially for PRs in the same repo, since they share the recon cache — and Phase 2 for each, each in its own repo, worktree and notes file, with every PR's commands run in its own repo. If any PR's Phase 1 returns `blocked`, stop and tell the human rather than checking an incomplete set.
 
-- **Names** match across repos: DTO fields, routes, queue and topic names, environment variables, feature-flag keys.
+Then, before Phase 3, dispatch one more fresh subagent. It gets each PR's `worktree_path`, `notes_path` and `round_summary`, each PR body, and the shared ticket text — or, with no ticket, each PR's description. For each concept the PRs share, it checks:
+
+- **Names** match: DTO fields, routes, queue and topic names, environment variables, feature-flag keys.
 - **Contracts** agree: what the producer sends, the consumer reads; what the deployment provides, the app reads.
 - **Order:** does one have to be deployed before the other, what breaks if it isn't, and does a PR description say so?
-- **Flags and config:** declared where they're read, with a sensible default when missing; secrets referenced by exactly the consumers that need them.
+- **Flags and config:** a secret, flag or default that one PR needs is provisioned by some PR in the set.
 - **Scope:** together, do the PRs cover what the ticket asks — or does each assume another PR handles a part nobody does?
 
-A mismatch is a finding on the PR that has to change, or on both when either could. A match is worth one line marked ✓, so the human sees it was checked rather than skipped. Phase 3 presents per-PR findings first, then this cross-PR list, and posts to each PR separately.
+It returns each finding as `{finding, target PR, severity}`, plus a list of checked-and-matching items marked ✓ so the human sees they were checked rather than skipped, and appends to each affected PR's notes file.
+
+A mismatch targets the PR that has to change, or both when either could. Cross-PR findings are verified and triaged like round findings (must-fix, worth-fixing, noise) and merged into the target PR's `must_fix` or worth-fixing, so they gate approve, request-changes and the fix offer. A gap no PR owns is reported at set level, and attached to a PR the human picks.
 
 ## Phase 1 — Identify the PR and whether it's yours
 
@@ -96,7 +100,7 @@ pr-review-loop never posts anywhere on its own — it hands back each round's `r
 
 A round beyond the first only earns its cost once the diff has actually changed — a new push, or a fix accepted in Phase 3. **If nothing has changed since the last round and the human asks for another anyway, say so and skip the dispatch** rather than re-running an identical review at the same cost for the same answer.
 
-Follow pr-review-loop's "caller's control loop" section as written; when it exits (`decision: stop` or the cap hit), move to Phase 3.
+Follow pr-review-loop's "caller's control loop" section as written; when it exits (`decision: stop` or the cap hit), move to Phase 3. With several PRs that ship together, run the cross-PR check first (see "Several PRs that ship one change").
 
 ## Phase 3 — Offer next actions
 
@@ -104,7 +108,7 @@ Follow pr-review-loop's "caller's control loop" section as written; when it exit
 
 Once the loop exits, you hold the final round's `must_fix`, `rejected`, `round_summary`, and the cumulative round history pr-review-loop wrote to `notes_path`.
 
-1. **Summarize for the human:** what ran (axes, rounds), what's still outstanding (`must_fix` unresolved), what was rejected and why. Write this summary to `SUMMARY="$(git rev-parse --absolute-git-dir)/pr-review-summary-<n>.md"` — the `$SUMMARY` the posting commands below read from.
+1. **Summarize for the human:** what ran (axes, rounds), what's still outstanding (`must_fix` unresolved), what was rejected and why. With several PRs, ownership, `must_fix`, the post offer and the fix offer are per PR: each PR's `$SUMMARY` carries the cross-PR findings naming it plus the ✓ list. Write this summary to `SUMMARY="$(git rev-parse --absolute-git-dir)/pr-review-summary-<n>.md"` — the `$SUMMARY` the posting commands below read from.
 2. **Offer to post it**, asking which of:
    - **comment only** — `gh pr review <n> --comment --body-file "$SUMMARY"`
    - **approve** — offer this only when `must_fix` is empty; `gh pr review <n> --approve --body-file "$SUMMARY"`
@@ -115,9 +119,9 @@ Once the loop exits, you hold the final round's `must_fix`, `rejected`, `round_s
 3. **If `is_own_pr` and `must_fix` is non-empty and `--no-fix` was not passed, offer to fix it too — but only offer.** If the human accepts:
    1. dispatch one subagent, per superpowers:test-driven-development, to fix the outstanding `must_fix` (and any accepted `worth-fixing`) on the PR's actual branch, and push it
    2. per superpowers:verification-before-completion, re-run the verify legs and paste the real output into `notes_path` — no green claim without it
-   3. dispatch another pr-review-loop round, still `fix_mode: report-only`, scoped to the delta, so the fix gets checked rather than trusted
+   3. dispatch another pr-review-loop round, still `fix_mode: report-only`, scoped to the delta, so the fix gets checked rather than trusted; with several PRs, re-run the cross-PR check against the delta too, and skip it when no PR in the set changed since last time
    4. return to step 2's posting offer with the updated result
-4. **Clean up the worktree you created**, if any, once the human's chosen action is taken — same as implement-ticket's Phase 6 — and name anything deliberately left behind.
+4. **Clean up every worktree you created**, if any, once the human's chosen action is taken — same as implement-ticket's Phase 6 — and name anything deliberately left behind.
 
 This phase ends the run once an action is taken or the human declines all of them; there is nothing further to return.
 
@@ -132,6 +136,7 @@ This phase ends the run once an action is taken or the human declines all of the
 | Rediscovering verify legs from scratch | implement-ticket's Recon cache already has them for this repo — read it, don't redo it. |
 | Treating a draft PR as ready for review | The author may have left it a draft specifically because it isn't ready — ask before assuming otherwise. |
 | Reviewing PRs that ship together one at a time and stopping there | Each can be correct alone while the pair is broken: a renamed field on one side only, a frontend that ships before the backend it needs. |
+| Cross-PR findings left out of a PR's `must_fix` | The PR's own review is clean, so it gets approved while the pair is still broken. |
 | Reading pr-review-loop's `report-only` findings as already fixed | Nothing was edited. `fixed` is `false` on every one of them until Phase 3 says otherwise. |
 
 ## Red flags
@@ -141,3 +146,4 @@ This phase ends the run once an action is taken or the human declines all of the
 - About to offer to fix without first checking `is_own_pr`
 - About to dispatch another round against a diff nothing has touched since the last one
 - About to treat a `report-only` round's findings as fixed
+- About to approve one PR of a set without its cross-PR findings
